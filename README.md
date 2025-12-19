@@ -1,65 +1,186 @@
-# Peer Learning Matchmaking System 🎓🤝
+# Sahay – Peer Learning Matchmaking System 🎓🤝
 
-A Streamlit-based hackathon prototype that enables adaptive peer learning
-for NGO and college students by intelligently pairing mentors and mentees
-based on strengths, weaknesses, and availability.
+**Sahay** is an adaptive peer-learning platform designed to bridge educational gaps for NGO and college students by intelligently pairing learners based on subject strengths, weaknesses, and availability.
 
 ---
 
 ## 🚩 Problem Statement
-Many NGO and college students face:
-- Limited access to qualified teachers
-- Diverse learning levels in the same classroom
-- Lack of personalized learning support
+NGO students face multiple challenges that hinder effective learning:
 
-Traditional one-size-fits-all teaching methods leave learning gaps unaddressed.
+- **High Student–Teacher Ratio:** Many NGOs operate with ratios as high as 1:40, making personalized attention difficult.
+- **Limited Resources:** Students come from diverse academic backgrounds; traditional one-size-fits-all teaching often leaves many behind.
+- **Low Digital Literacy:** Nearly **60–80% of rural students** struggle with digital learning tools, increasing learning gaps.
+
+These issues result in uneven learning outcomes and reduced student confidence.
 
 ---
 
 ## 💡 Our Solution
-We built a **Peer Learning Matchmaking System** that:
-- Collects student skill profiles
-- Matches mentors and mentees based on subject strengths and weaknesses
-- Creates a collaborative learning session
-- Encourages mentors through ratings, credits, and badges
+**Sahay** enables structured, supportive **peer-to-peer learning** by leveraging student strengths within the same community.
 
-The system is designed to be **simple, scalable, and motivating**.
-
----
-
-## ⚙️ How the System Works
-1. User selects role (Student / Teacher)
-2. Students enter:
-   - Academic year
-   - Strong and weak subjects
-   - Available time slot
-3. System runs a matching algorithm
-4. Best mentor–mentee pair is found
-5. Learning session begins (chat, AI helper, faculty option – prototype)
-6. Mentee rates mentor after the session
+### Key Solution Highlights
+- **Skill-Based Matching:** Students specify what they are strong in and where they need help.
+- **Rubric-Based Algorithm:** A compatibility score identifies the best mentor–mentee pairs.
+- **Adaptive Motivation:** Mentors earn **credits, badges, and recognition** after successful sessions.
+- **Support Escalation:** AI and faculty support are available when peers cannot resolve doubts.
 
 ---
 
-## 🎮 Key Features
-- Role-based profile setup (Student / Teacher)
-- Year-wise student classification (FY, SY, TY, Fourth Year)
-- Skill-based mentor–mentee matchmaking
-- Gamified matching experience
-- Learning session interface
-- AI helper & faculty escalation (prototype)
-- Rating-based mentor rewards
+## ⚙️ How It Works (Solution Flow)
+
+```mermaid
+graph TD
+    A[Student Enters Profile Data] --> B{Matching Algorithm}
+    
+    B -- No Match Found --> C[AI Chatbot Support]
+    
+    B -- Match Found --> D[Peer Mentor–Mentee Pairing]
+    D --> E[Learning Session Begins]
+    
+    subgraph Future_Features [Future Features]
+        E --> F[WhatsApp Reminder Sent]
+        E --> G[Video Call Link Generated]
+    end
+# Sahay – Peer Learning Matchmaking System 🎓🤝
+
+**Sahay** is an adaptive peer-learning platform designed to bridge educational gaps for NGO and college students by intelligently pairing learners based on subject strengths, weaknesses, and availability.
 
 ---
 
-## 🛠️ Tech Stack
-- Python
-- Streamlit
-- GitHub (version control)
-- Streamlit Community Cloud (deployment)
+## 🚩 Problem Statement
+NGO students face multiple challenges that hinder effective learning:
+
+- **High Student–Teacher Ratio:** Many NGOs operate with ratios as high as 1:40, making personalized attention difficult.
+- **Limited Resources:** Students come from diverse academic backgrounds; traditional one-size-fits-all teaching often leaves many behind.
+- **Low Digital Literacy:** Nearly **60–80% of rural students** struggle with digital learning tools, increasing learning gaps.
+
+These issues result in uneven learning outcomes and reduced student confidence.
 
 ---
 
-## 🚀 How to Run Locally
-```bash
+## 💡 Our Solution
+**Sahay** enables structured, supportive **peer-to-peer learning** by leveraging student strengths within the same community.
+
+### Key Solution Highlights
+- **Skill-Based Matching:** Students specify what they are strong in and where they need help.
+- **Rubric-Based Algorithm:** A compatibility score identifies the best mentor–mentee pairs.
+- **Adaptive Motivation:** Mentors earn **credits, badges, and recognition** after successful sessions.
+- **Support Escalation:** AI and faculty support are available when peers cannot resolve doubts.
+
+---
+
+## ⚙️ How It Works (Solution Flow)
+
+```mermaid
+graph TD
+    A[Student Enters Profile Data] --> B{Matching Algorithm}
+    
+    B -- No Match Found --> C[AI Chatbot Support]
+    
+    B -- Match Found --> D[Peer Mentor–Mentee Pairing]
+    D --> E[Learning Session Begins]
+    
+    subgraph Future_Features [Future Features]
+        E --> F[WhatsApp Reminder Sent]
+        E --> G[Video Call Link Generated]
+    end
+# Sahay – Peer Learning Matchmaking System 🎓🤝
+
+**Sahay** is an adaptive peer-learning platform designed to bridge educational gaps for NGO and college students by intelligently pairing learners based on subject strengths, weaknesses, and availability.
+
+---
+
+## 🚩 Problem Statement
+NGO students face multiple challenges that hinder effective learning:
+
+- **High Student–Teacher Ratio:** Many NGOs operate with ratios as high as 1:40, making personalized attention difficult.
+- **Limited Resources:** Students come from diverse academic backgrounds; traditional one-size-fits-all teaching often leaves many behind.
+- **Low Digital Literacy:** Nearly **60–80% of rural students** struggle with digital learning tools, increasing learning gaps.
+
+These issues result in uneven learning outcomes and reduced student confidence.
+
+---
+
+## 💡 Our Solution
+**Sahay** enables structured, supportive **peer-to-peer learning** by leveraging student strengths within the same community.
+
+### Key Solution Highlights
+- **Skill-Based Matching:** Students specify what they are strong in and where they need help.
+- **Rubric-Based Algorithm:** A compatibility score identifies the best mentor–mentee pairs.
+- **Adaptive Motivation:** Mentors earn **credits, badges, and recognition** after successful sessions.
+- **Support Escalation:** AI and faculty support are available when peers cannot resolve doubts.
+
+---
+
+## ⚙️ How It Works (Solution Flow)
+
+```mermaid
+graph TD
+    A[Student Enters Profile Data] --> B{Matching Algorithm}
+    
+    B -- No Match Found --> C[AI Chatbot Support]
+    
+    B -- Match Found --> D[Peer Mentor–Mentee Pairing]
+    D --> E[Learning Session Begins]
+    
+    subgraph Future_Features [Future Features]
+        E --> F[WhatsApp Reminder Sent]
+        E --> G[Video Call Link Generated]
+    end
+
+🎮 Core Features
+Role-based onboarding (Student / Teacher)
+Academic year classification (FY, SY, TY, Fourth Year)
+Strength–weakness-based matchmaking
+Gamified matchmaking experience
+Learning session interface (chat, file sharing, AI helper)
+Faculty escalation option
+Mentor rating, credits & badge system
+Session-based mentor leaderboard
+
+🛠️ Tech Stack
+Python
+Streamlit
+GitHub (Version Control)
+Streamlit Community Cloud (Deployment)
+
+🚀 Running the Project Locally
 pip install streamlit
 streamlit run app.py
+
+🌐 Live Demo
+🔗 Deployed on Streamlit Community Cloud
+https://adaptivelearningngo-ctc-thesemicolon.streamlit.app/
+
+🔮 Future Scope
+Real-time chat and video calling (WebRTC)
+AI-powered doubt resolution
+Persistent database integration
+Mentor analytics & performance tracking
+WhatsApp/SMS reminders for sessions
+Support for vocational and skill-based learning
+
+👥 Team Details
+
+Team Name: The Semicolon
+Project Name: Sahay – Peer Learning Matching System
+
+👩‍💻 Team Leader
+Srushti Kalokhe
+
+👩‍💻 Team Members
+Srushti Kalokhe
+Swarali Warade
+Nikita Sharma
+Tanieeshka Sonawane
+Anushka Dhane
+
+🏆 Hackathon Note
+This project is a functional prototype developed during a hackathon.
+The focus is on demonstrating logic, user flow, and scalability, with advanced features planned for future development.
+
+---
+
+
+
+
