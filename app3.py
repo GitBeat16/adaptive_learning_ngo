@@ -16,34 +16,73 @@ st.set_page_config(
 # =========================================================
 st.markdown("""
 <style>
-/* App background */
+/* =========================
+   GLOBAL BACKGROUND
+========================= */
 .stApp {
     background: linear-gradient(135deg, #e8f5ff, #e8fff3);
 }
 
-/* Default text color */
-h1, h2, h3, h4, h5, h6, p, span, div, label {
+/* =========================
+   TITLES / HEADINGS
+   - Black
+   - Bold
+   - New font
+========================= */
+h1, h2, h3 {
+    color: black !important;
+    font-weight: 700 !important;
+    font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* =========================
+   NORMAL TEXT
+========================= */
+p, span, div, label {
     color: black;
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
 }
 
-/* ---------------- WHITE LABELS (SPECIFIC FIELDS) ---------------- */
-label[data-testid="stWidgetLabel"]:has(+ div input[aria-label="Full Name"]) {
+/* =========================
+   DROPDOWNS (SELECTBOX + MULTISELECT)
+   - Selected value
+   - Placeholder
+   - Dropdown options
+========================= */
+
+/* Selected value */
+div[data-baseweb="select"] span {
+    color: white !important;
+    font-weight: 500;
+}
+
+/* Dropdown menu background */
+div[data-baseweb="menu"] {
+    background-color: #1f2933 !important;
+}
+
+/* Dropdown options text */
+div[data-baseweb="option"] {
+    color: white !important;
+    font-weight: 500;
+}
+
+/* Hovered option */
+div[data-baseweb="option"]:hover {
+    background-color: #2563eb !important;
     color: white !important;
 }
 
-label[data-testid="stWidgetLabel"]:has(+ div div[aria-label="Grade"]) {
+/* =========================
+   INPUT BOX TEXT (optional polish)
+========================= */
+input {
     color: white !important;
 }
 
-label[data-testid="stWidgetLabel"]:has(+ div div[aria-label="Time Slot"]) {
-    color: white !important;
-}
-
-label[data-testid="stWidgetLabel"]:has(+ div div[aria-label="Subjects You Teach"]) {
-    color: white !important;
-}
-
-/* Buttons */
+/* =========================
+   BUTTONS
+========================= */
 .stButton>button {
     background: linear-gradient(90deg, #1abc9c, #3498db);
     color: white !important;
@@ -59,7 +98,9 @@ label[data-testid="stWidgetLabel"]:has(+ div div[aria-label="Subjects You Teach"
     box-shadow: 0 6px 18px rgba(0,0,0,0.15);
 }
 
-/* Card layout */
+/* =========================
+   CARD LAYOUT
+========================= */
 .card {
     background: white;
     padding: 22px;
@@ -74,16 +115,9 @@ label[data-testid="stWidgetLabel"]:has(+ div div[aria-label="Subjects You Teach"
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
 }
-
-/* Metric cards */
-[data-testid="stMetric"] {
-    background: #f4fbff;
-    padding: 12px;
-    border-radius: 12px;
-    color: black;
-}
 </style>
 """, unsafe_allow_html=True)
+
 
 # =========================================================
 # SESSION STATE INITIALIZATION
