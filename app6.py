@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import date
 
 # ---- IMPORT PAGES ----
 from materials import materials_page
@@ -245,17 +246,22 @@ elif page == "Matchmaking":
             st.rerun()
 
     # -------------------------
-    # RATING
+    # RATING + DATE (CRITICAL)
     # -------------------------
     elif st.session_state.stage == 4:
         st.header("Rate Session")
         rating = st.slider("Rating", 1, 5)
 
         if st.button("Submit Rating"):
-            cursor.execute(
-                "INSERT INTO ratings (mentor, rating) VALUES (?, ?)",
-                (st.session_state.current_match["mentor"], rating)
-            )
+            cursor.execute("""
+                INSERT INTO ratings (mentor, mentee, rating, session_date)
+                VALUES (?, ?, ?, ?)
+            """, (
+                st.session_state.current_match["mentor"],
+                st.session_state.current_match["mentee"],
+                rating,
+                date.today()
+            ))
             conn.commit()
 
             st.success("Rating saved")
