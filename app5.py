@@ -125,7 +125,7 @@ if page == "Matchmaking":
     # STAGE 1: PROFILE SETUP
     # -------------------------------------------------
     if st.session_state.stage == 1:
-        st.header("Step 1: Create Profile")
+        st.header("Create Your Profile")
 
         role = st.radio("Role", ["Student", "Teacher"])
         name = st.text_input("Full Name")
