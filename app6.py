@@ -69,7 +69,7 @@ page = st.sidebar.radio(
 
 st.sidebar.divider()
 
-if st.sidebar.button("Logout"):
+if st.sidebar.button("Logout", key="logout_btn"):
     st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.user_name = ""
@@ -78,6 +78,7 @@ if st.sidebar.button("Logout"):
     st.session_state.profile = {}
     st.session_state.current_match = None
     st.rerun()
+
 
 
 # =========================================================
