@@ -5,19 +5,14 @@ from quiz_generators.maths import generate_maths_question
 from quiz_generators.english import generate_english_question
 from quiz_generators.science import generate_science_question
 
-# =========================================================
-# PRACTICE PAGE
-# =========================================================
+
 def practice_page():
     st.title("📝 Practice")
 
-    # ---------------------------------
-    # Load user grade
-    # ---------------------------------
-    cursor.execute("""
-        SELECT grade FROM profiles WHERE user_id = ?
-    """, (st.session_state.user_id,))
-    
+    # -----------------------------
+    # Load grade
+    # -----------------------------
+    cursor.execute("SELECT grade FROM profiles WHERE user_id = ?", (st.session_state.user_id,))
     row = cursor.fetchone()
     if not row:
         st.warning("Please complete your profile first.")
@@ -25,9 +20,9 @@ def practice_page():
 
     grade = int(row[0].split()[-1])
 
-    # ---------------------------------
-    # Session state
-    # ---------------------------------
+    # -----------------------------
+    # Session state init
+    # -----------------------------
     if "quiz_started" not in st.session_state:
         st.session_state.quiz_started = False
     if "questions" not in st.session_state:
@@ -36,10 +31,12 @@ def practice_page():
         st.session_state.q_index = 0
     if "score" not in st.session_state:
         st.session_state.score = 0
+    if "start_time" not in st.session_state:
+        st.session_state.start_time = None
 
-    # ---------------------------------
-    # Quiz setup
-    # ---------------------------------
+    # -----------------------------
+    # Start quiz
+    # -----------------------------
     if not st.session_state.quiz_started:
         subject = st.selectbox("Choose Subject", ["Maths", "English", "Science"])
 
@@ -48,28 +45,29 @@ def practice_page():
             st.session_state.quiz_started = True
             st.session_state.q_index = 0
             st.session_state.score = 0
+            st.session_state.start_time = time.time()
             st.rerun()
         return
 
-    # ---------------------------------
+    # -----------------------------
     # Quiz finished
-    # ---------------------------------
+    # -----------------------------
     if st.session_state.q_index >= len(st.session_state.questions):
         st.success("🎉 Practice Completed!")
         st.metric("Score", f"{st.session_state.score} / {len(st.session_state.questions)}")
 
         if st.button("Restart Practice"):
-            for k in ["quiz_started", "questions", "q_index", "score"]:
+            for k in ["quiz_started", "questions", "q_index", "score", "start_time"]:
                 st.session_state.pop(k, None)
             st.rerun()
         return
 
-    # ---------------------------------
-    # Question UI
-    # ---------------------------------
+    # -----------------------------
+    # Current question
+    # -----------------------------
     question = st.session_state.questions[st.session_state.q_index]
 
-    st.subheader(f"Question {st.session_state.q_index + 1}")
+    st.subheader(f"Question {st.session_state.q_index + 1} of {len(st.session_state.questions)}")
     st.write(question["q"])
 
     selected = st.radio(
@@ -78,45 +76,46 @@ def practice_page():
         key=f"q_{st.session_state.q_index}"
     )
 
-    # ---------------------------------
-    # Timer
-    # ---------------------------------
+    # -----------------------------
+    # Timer (NON-BLOCKING)
+    # -----------------------------
     TIME_LIMIT = 10
-    start = time.time()
-    timer_box = st.empty()
-    progress = st.empty()
+    elapsed = int(time.time() - st.session_state.start_time)
+    remaining = max(0, TIME_LIMIT - elapsed)
 
-    while True:
-        elapsed = int(time.time() - start)
-        remaining = TIME_LIMIT - elapsed
-        if remaining <= 0:
-            break
-        timer_box.info(f"⏳ Time left: {remaining}s")
-        progress.progress(elapsed / TIME_LIMIT)
-        time.sleep(0.3)
+    st.info(f"⏳ Time left: {remaining}s")
+    st.progress((TIME_LIMIT - remaining) / TIME_LIMIT)
 
-    # ---------------------------------
-    # Submit
-    # ---------------------------------
-    if st.button("Submit Answer") or remaining <= 0:
-        if selected == question["answer"]:
-            st.session_state.score += 1
-            st.success("✅ Correct!")
-            st.balloons()
-        else:
-            st.error(f"❌ Wrong! Correct answer: {question['answer']}")
+    # -----------------------------
+    # Auto-submit on timeout
+    # -----------------------------
+    if remaining == 0:
+        submit_answer(selected, question)
+        return
 
-        time.sleep(1)
-        st.session_state.q_index += 1
-        st.rerun()
+    # -----------------------------
+    # Submit button
+    # -----------------------------
+    if st.button("Submit Answer"):
+        submit_answer(selected, question)
 
 
-# =========================================================
-# QUIZ GENERATOR
-# =========================================================
+def submit_answer(selected, question):
+    if selected == question["answer"]:
+        st.session_state.score += 1
+        st.success("✅ Correct!")
+        st.balloons()
+    else:
+        st.error(f"❌ Wrong! Correct answer: {question['answer']}")
+
+    time.sleep(0.8)
+    st.session_state.q_index += 1
+    st.session_state.start_time = time.time()
+    st.rerun()
+
+
 def generate_quiz(grade, subject, count=10):
     questions = []
-
     for _ in range(count):
         if subject == "Maths":
             questions.append(generate_maths_question(grade))
@@ -124,5 +123,4 @@ def generate_quiz(grade, subject, count=10):
             questions.append(generate_english_question(grade))
         else:
             questions.append(generate_science_question(grade))
-
     return questions
