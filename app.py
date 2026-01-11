@@ -259,22 +259,23 @@ elif st.session_state.stage == 3:
         
         st.divider()
         
-        # AI Helper
+        # AI Helper Button
         if st.button("🤖 Ask AI Hint"):
             if not ai_available:
                 st.error("AI Key missing.")
             else:
                 try:
-                    # Context: Last 3 messages
+                    # 1. Get Context
                     context_msgs = [m['message'] for m in msgs[-3:] if m['message']]
                     context = " ".join(context_msgs) if context_msgs else "No context yet."
                     
-                    # USE STABLE MODEL HERE
-                    model = genai.GenerativeModel("gemini-pro")
+                    # 2. USE THE NEW MODEL NAME (Now supported with the library update)
+                    model = genai.GenerativeModel("gemini-1.5-flash")
                     
+                    # 3. Generate
                     resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
                     
-                    # Inject AI response into chat
+                    # 4. Save to Database
                     supabase.table("messages").insert({
                         "match_id": st.session_state.match_id,
                         "sender": "AI Bot",
@@ -282,8 +283,17 @@ elif st.session_state.stage == 3:
                         "file_url": None
                     }).execute()
                     st.rerun()
+                    
                 except Exception as e:
                     st.error(f"AI Error: {e}")
+                    # Debugging Helper: Print available models if it fails again
+                    try:
+                        st.write("Available models:")
+                        for m in genai.list_models():
+                            if 'generateContent' in m.supported_generation_methods:
+                                st.code(m.name)
+                    except:
+                        pass
 
         if st.button("End Session"):
             st.session_state.stage = 1
