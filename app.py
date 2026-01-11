@@ -206,9 +206,9 @@ elif st.session_state.stage == 3:
                     context_msgs = [m['message'] for m in msgs[-3:] if m['message']]
                     context = " ".join(context_msgs) if context_msgs else "No context."
                     
-                    # 2. Call Groq API
+                    # 2. Call Groq API (UPDATED MODEL NAME)
                     completion = ai_client.chat.completions.create(
-                        model="llama3-8b-8192", # Fast & Free
+                        model="llama-3.3-70b-versatile", 
                         messages=[
                             {"role": "system", "content": "You are a helpful tutor. Give a short, 1-sentence hint."},
                             {"role": "user", "content": f"Context: {context}"}
@@ -231,7 +231,3 @@ elif st.session_state.stage == 3:
                     st.error(f"AI Error: {e}")
             else:
                 st.error("AI Key Missing")
-
-        if st.button("End Session"):
-            st.session_state.stage = 1
-            st.rerun()
