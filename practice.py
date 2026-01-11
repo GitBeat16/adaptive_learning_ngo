@@ -1,60 +1,46 @@
 import streamlit as st
-from practice_data import PRACTICE_DATA
-from streak import update_streak
+from database import cursor
 
 def practice_page():
-    profile = st.session_state.user_profile
+    st.title("Practice")
 
-    st.subheader("Practice Questions")
+    # ---------------------------------
+    # Load profile from database
+    # ---------------------------------
+    cursor.execute("""
+        SELECT role, grade, strong_subjects, weak_subjects, teaches
+        FROM profiles
+        WHERE user_id = ?
+    """, (st.session_state.user_id,))
 
-    # -------- CLASS --------
-    if profile["role"] == "Student":
-        user_class = profile["class"]
-        st.info(f"Class: {user_class}")
-    else:
-        user_class = st.selectbox("Select Class", list(PRACTICE_DATA.keys()))
+    profile = cursor.fetchone()
 
-    if user_class not in PRACTICE_DATA:
-        st.warning("Practice not available for this class yet.")
+    if not profile:
+        st.warning("Please complete your profile in Matchmaking first.")
         return
 
-    # -------- SUBJECT --------
-    subject = st.selectbox(
-        "Select Subject",
-        list(PRACTICE_DATA[user_class].keys())
-    )
+    role, grade, strong, weak, teaches = profile
 
-    # -------- TOPIC --------
-    topic = st.selectbox(
-        "Select Topic",
-        list(PRACTICE_DATA[user_class][subject].keys())
-    )
+    # ---------------------------------
+    # Practice logic
+    # ---------------------------------
+    st.subheader("Your Practice Area")
+    st.write("**Role:**", role)
+    st.write("**Grade:**", grade)
 
-    questions = PRACTICE_DATA[user_class][subject][topic]
+    if role == "Student":
+        subjects = (weak or strong or "").split(",")
+        st.write("Focus Subjects:")
+    else:
+        subjects = (teaches or "").split(",")
+        st.write("Subjects You Teach:")
 
-    st.divider()
-    st.markdown("### 📝 Answer the following:")
+    subjects = [s for s in subjects if s]
 
-    user_answers = []
-    for i, q in enumerate(questions):
-        ans = st.radio(
-            f"Q{i+1}. {q['q']}",
-            q["options"],
-            key=f"q_{i}"
-        )
-        user_answers.append(ans)
+    if not subjects:
+        st.info("No subjects found. Update your profile.")
+        return
 
-    # -------- SUBMIT --------
-    if st.button("Submit Practice"):
-        score = 0
-        for i, q in enumerate(questions):
-            if user_answers[i] == q["answer"]:
-                score += 1
+    subject = st.selectbox("Choose Subject", subjects)
 
-        st.success(f"✅ Your Score: {score} / {len(questions)}")
-
-        # Update streak ONCE per day
-        update_streak()
-
-        if score == len(questions):
-            st.balloons()
+    st.success(f"Practice content for **{subject}** coming soon 🚀")
