@@ -7,8 +7,8 @@ from practice import practice_page
 from ratings import show_rating_ui
 from matching import find_matches
 from admin import admin_page
-
-
+from auth import auth_page
+from dashboard import dashboard_page
 
 # ---- DATABASE ----
 from database import init_db, cursor, conn
@@ -27,18 +27,14 @@ st.set_page_config(
 )
 
 # =========================================================
-# SIDEBAR NAVIGATION
-# =========================================================
-st.sidebar.title("Navigation")
-page = st.sidebar.radio(
-    "Go to",
-    ["Matchmaking", "Learning Materials", "Practice", "Admin"]
-)
-
-
-# =========================================================
 # SESSION STATE INIT
 # =========================================================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "page" not in st.session_state:
+    st.session_state.page = "auth"
+
 if "stage" not in st.session_state:
     st.session_state.stage = 1
 
@@ -55,6 +51,23 @@ if "rating" not in st.session_state:
     st.session_state.rating = 0
 
 SUBJECTS = ["Mathematics", "English", "Science"]
+
+# =========================================================
+# AUTH GATE (FIRST PAGE)
+# =========================================================
+if not st.session_state.logged_in:
+    auth_page()
+    st.stop()
+
+# =========================================================
+# SIDEBAR NAVIGATION (AFTER LOGIN ONLY)
+# =========================================================
+st.sidebar.title("Navigation")
+
+page = st.sidebar.radio(
+    "Go to",
+    ["Dashboard", "Matchmaking", "Learning Materials", "Practice", "Admin"]
+)
 
 # =========================================================
 # DATABASE LOADERS
@@ -106,6 +119,7 @@ def calculate_match_score(mentee, mentor):
 
     return score, reasons
 
+
 def find_best_mentor(mentee, mentors):
     best, best_score, best_reasons = None, -1, []
 
@@ -123,9 +137,15 @@ def find_best_mentor(mentee, mentors):
 # =========================================================
 
 # =========================
+# DASHBOARD
+# =========================
+if page == "Dashboard":
+    dashboard_page()
+
+# =========================
 # MATCHMAKING
 # =========================
-if page == "Matchmaking":
+elif page == "Matchmaking":
 
     st.title("Peer Learning Matchmaking System")
 
@@ -163,7 +183,8 @@ if page == "Matchmaking":
             }
 
             cursor.execute("""
-            INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO users 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 profile["name"],
                 profile["role"],
@@ -244,18 +265,14 @@ elif page == "Practice":
         st.warning("Create a profile first.")
     else:
         practice_page()
+
 # =========================
-# Admin
+# ADMIN
 # =========================
 elif page == "Admin":
-    admin_key = st.sidebar.text_input(
-        "Admin Access Key",
-        type="password"
-    )
+    admin_key = st.sidebar.text_input("Admin Access Key", type="password")
 
     if admin_key != "ngo-admin-123":
         st.warning("Unauthorized access")
     else:
         admin_page()
-
-
