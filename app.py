@@ -14,7 +14,7 @@ from ratings import show_rating_ui
 st.set_page_config(page_title="Sahay Live", layout="wide")
 
 # 🔴 PASTE YOUR GOOGLE SHEET URL HERE 🔴
-SHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID_HERE/edit"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1QLkqXEFs4r_N1joeBnMCB5g984B6pepWz1HsmrXmdBM/edit?usp=sharing"
 
 # =========================================================
 # GOOGLE SHEETS CONNECTION (HACKATHON MODE)
