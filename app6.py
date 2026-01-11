@@ -1,11 +1,8 @@
 import streamlit as st
-import time
 
 # ---- IMPORT PAGES ----
 from materials import materials_page
 from practice import practice_page
-from ratings import show_rating_ui
-from matching import find_matches
 from admin import admin_page
 from auth import auth_page
 from dashboard import dashboard_page
@@ -32,8 +29,14 @@ st.set_page_config(
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+
 if "page" not in st.session_state:
-    st.session_state.page = "auth"
+    st.session_state.page = "Dashboard"
 
 if "stage" not in st.session_state:
     st.session_state.stage = 1
@@ -41,26 +44,20 @@ if "stage" not in st.session_state:
 if "profile" not in st.session_state:
     st.session_state.profile = {}
 
-if "user_profile" not in st.session_state:
-    st.session_state.user_profile = {}
-
 if "current_match" not in st.session_state:
     st.session_state.current_match = None
-
-if "rating" not in st.session_state:
-    st.session_state.rating = 0
 
 SUBJECTS = ["Mathematics", "English", "Science"]
 
 # =========================================================
-# AUTH GATE (FIRST PAGE)
+# AUTH GATE
 # =========================================================
 if not st.session_state.logged_in:
     auth_page()
     st.stop()
 
 # =========================================================
-# SIDEBAR NAVIGATION (AFTER LOGIN ONLY)
+# SIDEBAR NAVIGATION
 # =========================================================
 st.sidebar.title("Navigation")
 
@@ -73,7 +70,19 @@ page = st.sidebar.radio(
 # DATABASE LOADERS
 # =========================================================
 def load_users():
-    cursor.execute("SELECT * FROM users")
+    cursor.execute("""
+        SELECT 
+            a.name,
+            p.role,
+            p.grade,
+            p.class,
+            p.time,
+            p.strong_subjects,
+            p.weak_subjects,
+            p.teaches
+        FROM profiles p
+        JOIN auth_users a ON a.id = p.user_id
+    """)
     rows = cursor.fetchall()
 
     mentors, mentees = [], []
@@ -148,7 +157,6 @@ if page == "Dashboard":
 elif page == "Matchmaking":
 
     st.title("Peer Learning Matchmaking System")
-
     mentors, mentees = load_users()
 
     # -------------------------
@@ -158,7 +166,6 @@ elif page == "Matchmaking":
         st.header("Create Your Profile")
 
         role = st.radio("Role", ["Student", "Teacher"])
-        name = st.text_input("Full Name")
         grade = st.selectbox("Grade", [f"Grade {i}" for i in range(1, 11)])
         time_slot = st.selectbox("Time Slot", ["4-5 PM", "5-6 PM", "6-7 PM"])
 
@@ -172,7 +179,6 @@ elif page == "Matchmaking":
 
         if st.button("Submit Profile & Find Match", type="primary"):
             profile = {
-                "name": name.strip(),
                 "role": role,
                 "grade": grade,
                 "class": int(grade.split()[-1]),
@@ -183,10 +189,11 @@ elif page == "Matchmaking":
             }
 
             cursor.execute("""
-                INSERT OR REPLACE INTO users 
+                INSERT INTO profiles
+                (user_id, role, grade, class, time, strong_subjects, weak_subjects, teaches)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                profile["name"],
+                st.session_state.user_id,
                 profile["role"],
                 profile["grade"],
                 profile["class"],
@@ -198,15 +205,18 @@ elif page == "Matchmaking":
             conn.commit()
 
             st.session_state.profile = profile
-            st.session_state.user_profile = profile
             st.session_state.stage = 2
             st.rerun()
 
     # -------------------------
     # MATCH RESULTS
     # -------------------------
-    if st.session_state.stage == 2:
-        mentee = st.session_state.profile
+    elif st.session_state.stage == 2:
+        mentee = {
+            "name": st.session_state.user_name,
+            **st.session_state.profile
+        }
+
         mentor, score, reasons = find_best_mentor(mentee, mentors)
 
         if mentor:
@@ -227,7 +237,7 @@ elif page == "Matchmaking":
     # -------------------------
     # SESSION
     # -------------------------
-    if st.session_state.stage == 3:
+    elif st.session_state.stage == 3:
         st.header("Learning Session")
         st.text_area("Chat")
         if st.button("End Session"):
@@ -237,7 +247,7 @@ elif page == "Matchmaking":
     # -------------------------
     # RATING
     # -------------------------
-    if st.session_state.stage == 4:
+    elif st.session_state.stage == 4:
         st.header("Rate Session")
         rating = st.slider("Rating", 1, 5)
 
@@ -247,6 +257,7 @@ elif page == "Matchmaking":
                 (st.session_state.current_match["mentor"], rating)
             )
             conn.commit()
+
             st.success("Rating saved")
             st.session_state.stage = 1
             st.rerun()
@@ -261,17 +272,13 @@ elif page == "Learning Materials":
 # PRACTICE
 # =========================
 elif page == "Practice":
-    if not st.session_state.user_profile:
-        st.warning("Create a profile first.")
-    else:
-        practice_page()
+    practice_page()
 
 # =========================
 # ADMIN
 # =========================
 elif page == "Admin":
     admin_key = st.sidebar.text_input("Admin Access Key", type="password")
-
     if admin_key != "ngo-admin-123":
         st.warning("Unauthorized access")
     else:
