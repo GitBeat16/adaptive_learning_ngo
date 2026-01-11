@@ -17,28 +17,13 @@ st.set_page_config(page_title="Sahay Live", layout="wide")
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1QLkqXEFs4r_N1joeBnMCB5g984B6pepWz1HsmrXmdBM/edit?usp=sharing"
 
 # =========================================================
-# GOOGLE SHEETS CONNECTION (HACKATHON MODE)
+# GOOGLE SHEETS CONNECTION
 # =========================================================
-# NOTE: For a real production app, use st.secrets with Service Account.
-# For this demo, we assume the sheet is "Public Editor" for simplicity.
-# If that fails, we fallback to local memory for safety.
-
 def get_db_connection():
     try:
-        # Authenticating anonymously for public read/write (if enabled) 
-        # OR using a simplified service account if you have one.
-        # FOR THIS DEMO: We will use a "Public Editor" trick or direct simple auth
-        # ideally, you set up st.secrets. 
-        
-        # Let's try the most robust way for two users:
-        # If you haven't set up API keys, this part is tricky.
-        # THE SIMPLEST LIVE FIX:
-        # We will use st.secrets if available, otherwise warn user.
-        
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        
-        # Check if secrets exist (The secure way)
+        # Check if secrets exist
         if "gcp_service_account" in st.secrets:
+            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
             creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
             client = gspread.authorize(creds)
             sheet = client.open_by_url(SHEET_URL)
@@ -74,7 +59,7 @@ def find_live_match(my_role, my_time, my_grade):
     # Logic: Find someone with opposite role, same time
     opposite_role = "Teacher" if my_role == "Student" else "Student"
     
-    # Filter
+    # Filter for waiting candidates
     candidates = df[
         (df["role"] == opposite_role) & 
         (df["time"] == my_time) & 
@@ -93,8 +78,6 @@ def create_match_record(mentor_name, mentee_name):
         ws = sheet.worksheet("Matches")
         match_id = f"{mentor_name}-{mentee_name}"
         ws.append_row([mentor_name, mentee_name, match_id])
-        
-        # Update profiles status to 'matched' (optional optimization)
         return match_id
     return f"{mentor_name}-{mentee_name}"
 
@@ -112,8 +95,6 @@ def get_messages(match_id):
         records = ws.get_all_records()
         df = pd.DataFrame(records)
         if not df.empty:
-            # Filter for this match only
-            # Convert match_id to string to be safe
             df['match_id'] = df['match_id'].astype(str)
             return df[df['match_id'] == match_id]
     return pd.DataFrame()
@@ -135,8 +116,7 @@ st.title("Sahay Live: Peer Matchmaking 🌐")
 conn = get_db_connection()
 if not conn:
     st.error("⚠️ Database Disconnected.")
-    st.info("To make this live, you must add Google Service Account credentials to Streamlit Secrets.")
-    st.markdown("[See Instructions below on how to fix this]")
+    st.info("Please set up 'gcp_service_account' in Streamlit Secrets.")
     st.stop()
 
 # ---------------------------------------------------------
@@ -156,6 +136,7 @@ if st.session_state.stage == 1:
         
     subjects = st.multiselect("Subjects", ["Math", "Science", "English", "History"])
     
+    # 🔴 THIS IS THE BUTTON YOU ARE LOOKING FOR 🔴
     if st.button("Go Live & Find Partner", type="primary"):
         if name:
             with st.spinner("Saving to cloud database..."):
@@ -179,7 +160,6 @@ elif st.session_state.stage == 2:
     st.header("Step 2: Finding a Partner...")
     st.info(f"Looking for a partner in **{st.session_state.profile['time']}** slot...")
     
-    # Auto-refresh logic (Polling)
     if st.button("🔄 Check for Match Now"):
         partner, partner_name = find_live_match(
             st.session_state.profile["role"],
@@ -210,7 +190,6 @@ elif st.session_state.stage == 2:
 elif st.session_state.stage == 3:
     st.header(f"Live Session: {st.session_state.user_name} & {st.session_state.partner_name}")
     
-    # 1. AI SETUP
     if "GOOGLE_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -233,7 +212,6 @@ elif st.session_state.stage == 3:
             else:
                 st.write("No messages yet. Say hello!")
 
-        # Send Message
         with st.form("chat_form", clear_on_submit=True):
             user_msg = st.text_input("Type message...")
             sent = st.form_submit_button("Send 🚀")
