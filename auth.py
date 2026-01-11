@@ -1,6 +1,9 @@
 import streamlit as st
 from database import cursor, conn
 
+# =========================
+# SIGN UP
+# =========================
 def signup():
     st.subheader("Create Account")
 
@@ -15,15 +18,18 @@ def signup():
 
         try:
             cursor.execute(
-                "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-                (name, email, password)
+                "INSERT INTO auth_users (name, email, password) VALUES (?, ?, ?)",
+                (name.strip(), email.strip(), password)
             )
             conn.commit()
             st.success("Account created successfully. Please login.")
-        except Exception as e:
+        except Exception:
             st.error("Email already exists")
 
 
+# =========================
+# LOGIN
+# =========================
 def login():
     st.subheader("Login")
 
@@ -32,8 +38,8 @@ def login():
 
     if st.button("Login", key="login_btn"):
         cursor.execute(
-            "SELECT * FROM users WHERE email=? AND password=?",
-            (email, password)
+            "SELECT id, name FROM auth_users WHERE email=? AND password=?",
+            (email.strip(), password)
         )
         user = cursor.fetchone()
 
@@ -48,6 +54,9 @@ def login():
             st.error("Invalid email or password")
 
 
+# =========================
+# AUTH PAGE
+# =========================
 def auth_page():
     st.title("Welcome to Peer Learning Platform")
 
