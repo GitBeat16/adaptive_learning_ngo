@@ -2,116 +2,121 @@ import streamlit as st
 import google.generativeai as genai
 from supabase import create_client, Client
 import time
-from datetime import datetime
 
 # =========================================================
-# CONFIGURATION
+# CONFIGURATION & SETUP
 # =========================================================
-st.set_page_config(page_title="Sahay Live + Files", layout="wide")
+st.set_page_config(page_title="Sahay Smart Match", layout="wide")
 
-# =========================================================
-# SUPABASE CONNECTION
-# =========================================================
-# Initialize connection safely
-@st.cache_resource
-def init_supabase():
+# 1. SETUP SUPABASE
+try:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
-
-try:
-    supabase: Client = init_supabase()
-except:
-    st.error("⚠️ Supabase Credentials Missing in Secrets!")
+    supabase: Client = create_client(url, key)
+except Exception as e:
+    st.error(f"❌ Supabase Connection Failed. Check Secrets. Error: {e}")
     st.stop()
 
-# =========================================================
-# DATABASE FUNCTIONS
-# =========================================================
-
-def save_profile(data):
-    """Saves user profile to Supabase"""
-    # Convert list to string for DB
-    data['subjects'] = ", ".join(data['subjects'])
-    data['status'] = 'waiting'
+# 2. SETUP AI (Google Gemini)
+ai_available = False
+if "GOOGLE_API_KEY" in st.secrets:
     try:
-        supabase.table("profiles").insert(data).execute()
-        return True
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        ai_available = True
     except Exception as e:
-        st.error(f"Error saving profile: {e}")
-        return False
+        st.warning(f"AI Key found but configuration failed: {e}")
+else:
+    st.warning("⚠️ GOOGLE_API_KEY missing in Secrets. AI features disabled.")
 
-def find_match(role, time_slot, grade):
-    """Finds a waiting peer with opposite role"""
-    opposite = "Teacher" if role == "Student" else "Student"
+# =========================================================
+# INTELLIGENT MATCHING ALGORITHM
+# =========================================================
+def find_smart_match(role, time_slot, my_subjects):
+    """
+    Finds the best match based on:
+    1. Time Availability (Must match)
+    2. Role (Must be opposite)
+    3. Subject Overlap (Bonus Points!)
+    """
+    opposite_role = "Teacher" if role == "Student" else "Student"
     
-    # Query Supabase: Find opposite role, same time, status waiting
+    # 1. Fetch all waiting candidates
     response = supabase.table("profiles").select("*")\
-        .eq("role", opposite)\
+        .eq("role", opposite_role)\
         .eq("time_slot", time_slot)\
         .eq("status", "waiting")\
         .execute()
     
     candidates = response.data
-    if candidates:
-        return candidates[0] # Return first match
-    return None
+    if not candidates:
+        return None
+
+    # 2. Score Candidates
+    best_candidate = None
+    highest_score = -1
+
+    for person in candidates:
+        score = 0
+        person_subjects = person.get("subjects", "").split(", ")
+        
+        # Check for Subject Overlap
+        # (If I need Math, and they Teach Math -> +50 Points)
+        overlap = set(my_subjects).intersection(set(person_subjects))
+        if overlap:
+            score += 50
+        
+        # Select this person if they have a higher score
+        if score > highest_score:
+            highest_score = score
+            best_candidate = person
+
+    return best_candidate
+
+# =========================================================
+# DATABASE ACTIONS
+# =========================================================
+def save_profile(data):
+    data['subjects'] = ", ".join(data['subjects']) # Convert list to string
+    try:
+        supabase.table("profiles").insert(data).execute()
+        return True
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        return False
 
 def create_match_record(mentor, mentee):
     match_id = f"{mentor}-{mentee}"
-    # Check if exists first to avoid duplicate errors
-    existing = supabase.table("matches").select("*").eq("match_id", match_id).execute()
-    
-    if not existing.data:
-        supabase.table("matches").insert({
-            "match_id": match_id,
-            "mentor": mentor,
-            "mentee": mentee
-        }).execute()
-        
-        # Update profiles to 'matched' so they stop appearing in search
-        supabase.table("profiles").update({"status": "matched"}).eq("name", mentor).execute()
-        supabase.table("profiles").update({"status": "matched"}).eq("name", mentee).execute()
-        
+    try:
+        # Check existing to prevent errors
+        check = supabase.table("matches").select("*").eq("match_id", match_id).execute()
+        if not check.data:
+            supabase.table("matches").insert({
+                "match_id": match_id, "mentor": mentor, "mentee": mentee
+            }).execute()
+            
+            # Update status to 'matched' so they are taken off the market
+            supabase.table("profiles").update({"status": "matched"}).eq("name", mentor).execute()
+            supabase.table("profiles").update({"status": "matched"}).eq("name", mentee).execute()
+    except Exception as e:
+        st.error(f"Match Record Error: {e}")
     return match_id
 
-def send_message(match_id, sender, text=None, file_url=None, file_type=None):
-    data = {
-        "match_id": match_id,
-        "sender": sender,
-        "message": text if text else "",
-        "file_url": file_url,
-        "file_type": file_type
-    }
-    supabase.table("messages").insert(data).execute()
-
-def get_messages(match_id):
-    # Get messages ordered by time
-    response = supabase.table("messages").select("*")\
-        .eq("match_id", match_id)\
-        .order("created_at", desc=False)\
-        .execute()
-    return response.data
-
 def upload_file(file_obj, match_id):
-    """Uploads file to Supabase Storage and returns URL"""
     try:
-        # Create unique filename: match_id/timestamp_filename
+        # Unique path: match_id/timestamp_filename
         file_path = f"{match_id}/{int(time.time())}_{file_obj.name}"
         bucket = "chat-files"
         
-        # Upload bytes
+        # Upload
         supabase.storage.from_(bucket).upload(
             file_path, 
             file_obj.getvalue(),
             {"content-type": file_obj.type}
         )
-        
-        # Get Public URL
-        public_url = supabase.storage.from_(bucket).get_public_url(file_path)
-        return public_url
+        # Get URL
+        return supabase.storage.from_(bucket).get_public_url(file_path)
     except Exception as e:
-        st.error(f"Upload failed: {e}")
+        st.error(f"Upload Failed: {e}")
         return None
 
 # =========================================================
@@ -120,145 +125,158 @@ def upload_file(file_obj, match_id):
 if "stage" not in st.session_state: st.session_state.stage = 1
 if "user_name" not in st.session_state: st.session_state.user_name = ""
 
-st.title("Sahay: Live Peer Learning 🎓")
+st.title("Sahay: Smart Peer Learning 🧠")
 
 # ---------------------------------------------------------
-# STAGE 1: LOGIN
+# STAGE 1: LOGIN & PROFILE
 # ---------------------------------------------------------
 if st.session_state.stage == 1:
     st.header("Step 1: Join Session")
+    
     col1, col2 = st.columns(2)
     with col1:
         role = st.radio("I am a:", ["Student", "Teacher"])
-        name = st.text_input("Name")
+        name = st.text_input("My Name")
     with col2:
         grade = st.selectbox("Grade", ["Grade 8", "Grade 9", "Grade 10"])
         time_slot = st.selectbox("Time Slot", ["4-5 PM", "5-6 PM"])
-    
-    subjects = st.multiselect("Subjects", ["Math", "Science", "English"])
+        
+    subjects = st.multiselect("Subjects (I need help with / I teach)", ["Math", "Science", "English", "History"])
 
     if st.button("Go Live", type="primary"):
-        if name:
+        if name and subjects:
             profile = {
                 "role": role, "name": name, "grade": grade, 
-                "time_slot": time_slot, "subjects": subjects
+                "time_slot": time_slot, "subjects": subjects, "status": "waiting"
             }
             if save_profile(profile):
                 st.session_state.profile = profile
                 st.session_state.user_name = name
                 st.session_state.stage = 2
                 st.rerun()
+        else:
+            st.warning("Please fill in Name and Subjects.")
 
 # ---------------------------------------------------------
-# STAGE 2: MATCHING
+# STAGE 2: SMART MATCHING
 # ---------------------------------------------------------
 elif st.session_state.stage == 2:
-    st.header("Step 2: Finding Partner...")
-    st.info(f"Searching for peers in {st.session_state.profile['time_slot']}...")
+    st.header("Step 2: Finding Best Match...")
+    st.info(f"Looking for experts in: {', '.join(st.session_state.profile['subjects'])}")
     
-    if st.button("🔄 Check Now"):
-        partner = find_match(
+    if st.button("🔄 Search for Partner"):
+        match = find_smart_match(
             st.session_state.profile['role'],
             st.session_state.profile['time_slot'],
-            st.session_state.profile['grade']
+            st.session_state.profile['subjects']
         )
         
-        if partner:
-            st.success(f"Match Found! Connected with {partner['name']}")
-            
-            # Determine Match ID
+        if match:
+            # Determine Names
             p1 = st.session_state.user_name
-            p2 = partner['name']
+            p2 = match['name']
             
-            # Identify mentor/mentee for ID generation
+            st.success(f"🎉 Match Found! You are connected with **{p2}**")
+            st.caption(f"Matched based on shared subjects: {match['subjects']}")
+            
+            # Create Match ID
             if st.session_state.profile['role'] == "Teacher":
                 m_id = create_match_record(p1, p2)
             else:
                 m_id = create_match_record(p2, p1)
-            
+                
             st.session_state.match_id = m_id
-            st.session_state.partner_name = partner['name']
+            st.session_state.partner_name = p2
             time.sleep(1)
             st.session_state.stage = 3
             st.rerun()
         else:
-            st.warning("No partner found yet. Please wait...")
+            st.warning("No perfect match yet. Waiting for more users...")
 
 # ---------------------------------------------------------
-# STAGE 3: CHAT & FILES
+# STAGE 3: CHAT + AI + FILES
 # ---------------------------------------------------------
 elif st.session_state.stage == 3:
-    st.header(f"Chat: {st.session_state.user_name} & {st.session_state.partner_name}")
+    st.header(f"Live Session: {st.session_state.user_name} & {st.session_state.partner_name}")
     
-    # AI Setup
-    if "GOOGLE_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-
     col_chat, col_tools = st.columns([2, 1])
 
+    # --- CHAT LOOP ---
     with col_chat:
-        st.subheader("Discussion")
-        
-        # Poll for new messages
-        msgs = get_messages(st.session_state.match_id)
-        
+        # Fetch Messages
+        try:
+            msgs = supabase.table("messages").select("*")\
+                .eq("match_id", st.session_state.match_id)\
+                .order("created_at", desc=False).execute().data
+        except:
+            msgs = []
+
         container = st.container(height=400)
         with container:
             if msgs:
                 for m in msgs:
                     is_me = m['sender'] == st.session_state.user_name
                     with st.chat_message("user" if is_me else "assistant"):
-                        # Show Text
-                        if m['message']:
-                            st.write(f"**{m['sender']}:** {m['message']}")
-                        
-                        # Show File
-                        if m['file_url']:
-                            if "image" in m['file_type']:
-                                st.image(m['file_url'], caption="Shared Image")
-                            else:
-                                st.markdown(f"📎 [Download File]({m['file_url']})")
+                        if m['message']: st.write(f"**{m['sender']}:** {m['message']}")
+                        if m['file_url']: st.image(m['file_url']) if "image" in m.get('file_type','') else st.markdown(f"📎 [Download File]({m['file_url']})")
             else:
                 st.info("Start the conversation!")
 
-        # Message Input
-        with st.form("chat"):
+        with st.form("msg_form", clear_on_submit=True):
             txt = st.text_input("Message...")
-            sent = st.form_submit_button("Send")
-            if sent and txt:
-                send_message(st.session_state.match_id, st.session_state.user_name, text=txt)
+            if st.form_submit_button("Send") and txt:
+                supabase.table("messages").insert({
+                    "match_id": st.session_state.match_id,
+                    "sender": st.session_state.user_name,
+                    "message": txt,
+                    "file_url": None
+                }).execute()
                 st.rerun()
         
-        if st.button("🔄 Refresh Chat"):
-            st.rerun()
+        if st.button("🔄 Refresh"): st.rerun()
 
+    # --- TOOLS ---
     with col_tools:
-        st.subheader("Share Files")
+        st.subheader("Tools")
         
-        # File Uploader
-        uploaded_file = st.file_uploader("Upload Image/PDF", key="up")
-        if uploaded_file and st.button("Upload"):
-            with st.spinner("Uploading..."):
-                url = upload_file(uploaded_file, st.session_state.match_id)
-                if url:
-                    send_message(
-                        st.session_state.match_id, 
-                        st.session_state.user_name, 
-                        file_url=url, 
-                        file_type=uploaded_file.type
-                    )
-                    st.success("File sent!")
-                    st.rerun()
-
-        st.divider()
-        st.subheader("AI Helper")
-        if st.button("🤖 Ask AI Hint"):
-            if msgs:
-                last_txt = next((m['message'] for m in reversed(msgs) if m['message']), "Hello")
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                resp = model.generate_content(f"Student asked: '{last_txt}'. Give a short hint.")
-                send_message(st.session_state.match_id, "AI Bot", text=f"🤖 {resp.text}")
+        # File Upload
+        up_file = st.file_uploader("Share Image/PDF", key="u")
+        if up_file and st.button("Upload File"):
+            url = upload_file(up_file, st.session_state.match_id)
+            if url:
+                supabase.table("messages").insert({
+                    "match_id": st.session_state.match_id,
+                    "sender": st.session_state.user_name,
+                    "message": "",
+                    "file_url": url,
+                    "file_type": up_file.type
+                }).execute()
+                st.success("File Sent!")
                 st.rerun()
+        
+        st.divider()
+        
+        # AI Helper
+        if st.button("🤖 Ask AI Hint"):
+            if not ai_available:
+                st.error("AI Key missing.")
+            else:
+                try:
+                    # Context: Last 3 messages
+                    context = " ".join([m['message'] for m in msgs[-3:] if m['message']])
+                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    resp = model.generate_content(f"Two students are discussing: '{context}'. Give a short, helpful hint.")
+                    
+                    # Inject AI response into chat
+                    supabase.table("messages").insert({
+                        "match_id": st.session_state.match_id,
+                        "sender": "AI Bot",
+                        "message": f"🤖 {resp.text}",
+                        "file_url": None
+                    }).execute()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"AI Error: {e}")
 
         if st.button("End Session"):
             st.session_state.stage = 1
