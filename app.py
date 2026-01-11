@@ -23,78 +23,41 @@ st.markdown("""
         color: #31333F;
     }
     
-    /* Input Fields & Dropdowns (Fix for Dark Mode systems) */
+    /* Input Fields & Dropdowns */
     .stTextInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #ffffff !important;
         color: #31333F !important;
         border: 1px solid #d1d5db;
     }
-    
-    /* Input Labels */
     .stMarkdown label, .stTextInput label, .stSelectbox label {
         color: #31333F !important;
         font-weight: 600;
     }
 
     /* Header Styling */
-    h1, h2, h3 {
-        color: #1e293b !important;
-        font-family: 'Inter', sans-serif;
-    }
+    h1, h2, h3 { color: #1e293b !important; font-family: 'Inter', sans-serif; }
     
-    /* Buttons */
-    div.stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-    }
-
     /* Chat Bubbles */
     .chat-bubble-me {
-        background-color: #dcf8c6;
-        color: #000000;
-        padding: 12px 18px;
-        border-radius: 15px 15px 0 15px;
-        margin: 5px 0 5px auto;
-        max-width: 70%;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        display: block;
-        border: 1px solid #ccebc4;
+        background-color: #dcf8c6; color: #000; padding: 12px 18px;
+        border-radius: 15px 15px 0 15px; margin: 5px 0 5px auto;
+        max-width: 70%; display: block; border: 1px solid #ccebc4;
     }
-    
     .chat-bubble-partner {
-        background-color: #ffffff;
-        color: #000000;
-        padding: 12px 18px;
-        border-radius: 15px 15px 15px 0;
-        margin: 5px 0;
-        max-width: 70%;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        display: block;
-        border: 1px solid #e5e7eb;
+        background-color: #ffffff; color: #000; padding: 12px 18px;
+        border-radius: 15px 15px 15px 0; margin: 5px 0;
+        max-width: 70%; display: block; border: 1px solid #e5e7eb;
     }
-    
     .chat-bubble-ai {
-        background-color: #e0e7ff;
-        border: 1px solid #6366f1;
-        color: #312e81;
-        padding: 12px 18px;
-        border-radius: 15px;
-        margin: 10px 0;
-        max-width: 85%;
-        display: block;
+        background-color: #e0e7ff; border: 1px solid #6366f1; color: #312e81;
+        padding: 12px 18px; border-radius: 15px; margin: 10px 0; max-width: 85%; display: block;
     }
     
-    /* Top Bar for Chat */
+    /* Top Bar */
     .chat-header {
-        background: #ffffff;
-        padding: 15px 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border: 1px solid #e5e7eb;
+        background: #ffffff; padding: 15px 20px; border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;
+        display: flex; justify-content: space-between; align-items: center; border: 1px solid #e5e7eb;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -125,9 +88,7 @@ def upload_file(file_obj, match_id):
         bucket = "chat-files"
         supabase.storage.from_(bucket).upload(file_path, file_obj.getvalue(), {"content-type": file_obj.type})
         return supabase.storage.from_(bucket).get_public_url(file_path)
-    except Exception as e:
-        st.toast(f"Upload Failed: {str(e)}")
-        return None
+    except: return None
 
 def calculate_match_score(me, candidate):
     score = 0
@@ -175,6 +136,28 @@ def find_best_match(my_profile):
             high_score = s
             best = p
     return best
+
+def check_if_matched_by_others(my_name):
+    """
+    Checks if someone else found me and updated my status to 'matched'
+    Returns: (match_found_bool, partner_name, match_id)
+    """
+    try:
+        # 1. Check if my status changed to 'matched'
+        my_profile = supabase.table("profiles").select("*").eq("name", my_name).execute().data
+        if my_profile and my_profile[0]['status'] == 'matched':
+            # 2. Find who matched with me in the matches table
+            # Check as mentor
+            match_rec = supabase.table("matches").select("*").eq("mentor", my_name).execute().data
+            if match_rec: return True, match_rec[0]['mentee'], match_rec[0]['match_id']
+            
+            # Check as mentee
+            match_rec = supabase.table("matches").select("*").eq("mentee", my_name).execute().data
+            if match_rec: return True, match_rec[0]['mentor'], match_rec[0]['match_id']
+            
+        return False, None, None
+    except:
+        return False, None, None
 
 def save_profile(data):
     data['subjects'] = ", ".join(data['subjects'])
@@ -244,12 +227,14 @@ if st.session_state.stage == 1:
                 else:
                     st.error("⚠️ Please fill in Name, Languages, and Subjects.")
 
-# --- STAGE 2: MATCHING ---
+# --- STAGE 2: MATCHING (SYNC FIXED) ---
 elif st.session_state.stage == 2:
     st.markdown("### 🔍 Analyzing Peers...")
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.info(f"Looking for match for **{st.session_state.user_name}** ({st.session_state.profile['time_slot']})...")
+        
+        # 1. Active Search Button
         if st.button("🔄 Click to Search Now", type="primary", use_container_width=True):
             with st.spinner("Calculating compatibility scores..."):
                 time.sleep(1)
@@ -265,7 +250,21 @@ elif st.session_state.stage == 2:
                 st.session_state.stage = 3
                 st.rerun()
             else:
-                st.warning("⏳ No perfect match yet. Waiting for more users...")
+                st.warning("⏳ No perfect match yet.")
+
+        # 2. Passive Match Check (The Fix!)
+        # Check if someone else matched with me while I was waiting
+        is_matched, partner, m_id = check_if_matched_by_others(st.session_state.user_name)
+        if is_matched:
+            st.success(f"🎉 You have been matched with **{partner}**!")
+            st.session_state.match_id = m_id
+            st.session_state.partner_name = partner
+            time.sleep(1.5)
+            st.session_state.stage = 3
+            st.rerun()
+            
+        # 3. Auto-Refresh Instruction
+        st.caption("Tip: If you are waiting, click the Search button occasionally to refresh.")
 
 # --- STAGE 3: CHAT ---
 elif st.session_state.stage == 3:
