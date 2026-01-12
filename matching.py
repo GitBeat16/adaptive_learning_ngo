@@ -10,17 +10,7 @@ MATCH_THRESHOLD = 50
 SESSION_TIMEOUT_MIN = 60
 
 # =========================================================
-# SCHEMA DETECTION (CRITICAL FIX)
-# =========================================================
-def get_time_column():
-    cursor.execute("PRAGMA table_info(profiles)")
-    cols = [c[1] for c in cursor.fetchall()]
-    return "time_slot" if "time_slot" in cols else "time"
-
-TIME_COL = get_time_column()
-
-# =========================================================
-# SAFE DB MIGRATION
+# SAFE DB MIGRATION (ONLY ADD WHAT DOES NOT EXIST)
 # =========================================================
 def migrate_profiles_table():
     try:
@@ -56,13 +46,13 @@ CREATE TABLE IF NOT EXISTS messages (
 conn.commit()
 
 # =========================================================
-# CLEANUP STALE USERS
+# CLEANUP STALE USERS (SQLITE SAFE)
 # =========================================================
 def cleanup_stale_profiles():
-    expiry = (datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MIN)) \
+    expiry = (datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MIN))\
         .strftime("%Y-%m-%d %H:%M:%S")
 
-    cursor.execute(f"""
+    cursor.execute("""
         DELETE FROM profiles
         WHERE status='waiting'
         AND datetime(created_at) < datetime(?)
@@ -70,7 +60,7 @@ def cleanup_stale_profiles():
     conn.commit()
 
 # =========================================================
-# DELETE SESSION
+# DELETE USER SESSION
 # =========================================================
 def delete_user_session(user_id, match_id):
     cursor.execute("DELETE FROM profiles WHERE user_id=?", (user_id,))
@@ -81,13 +71,13 @@ def delete_user_session(user_id, match_id):
 # LOAD ACTIVE PROFILES
 # =========================================================
 def load_profiles():
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT 
             a.id,
             a.name,
             p.role,
             p.grade,
-            p.{TIME_COL},
+            p."time",
             p.strong_subjects,
             p.weak_subjects,
             p.teaches
@@ -117,6 +107,7 @@ def calculate_match_score(mentor, mentee):
     score = 0
     reasons = []
 
+    # Weak ↔ Strong (core rule)
     for s in mentee["weak"]:
         if s in mentor["strong"]:
             score += 50
@@ -197,8 +188,11 @@ def matchmaking_page():
     </div>
     """, unsafe_allow_html=True)
 
-    cursor.execute(f"""
-        SELECT role, grade, {TIME_COL}, strong_subjects, weak_subjects, teaches, status
+    # -------------------------------------------------
+    # LOAD CURRENT USER
+    # -------------------------------------------------
+    cursor.execute("""
+        SELECT role, grade, "time", strong_subjects, weak_subjects, teaches, status
         FROM profiles
         WHERE user_id=?
     """, (st.session_state.user_id,))
@@ -220,7 +214,9 @@ def matchmaking_page():
         "weak": weak.split(",") if weak else []
     }
 
-    # ---------------- CHAT MODE ----------------
+    # -------------------------------------------------
+    # CHAT MODE
+    # -------------------------------------------------
     if "match_id" in st.session_state and st.session_state.match_id:
 
         st.subheader("Live Chat")
@@ -231,9 +227,15 @@ def matchmaking_page():
         with chat:
             for sender, msg in msgs:
                 if sender == current_user["name"]:
-                    st.markdown(f"<div class='chat-bubble-me'>{msg}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='chat-bubble-me'>{msg}</div>",
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.markdown(f"<div class='chat-bubble-partner'><b>{sender}:</b> {msg}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='chat-bubble-partner'><b>{sender}:</b> {msg}</div>",
+                        unsafe_allow_html=True
+                    )
 
         with st.form("chat_form", clear_on_submit=True):
             txt = st.text_input("Message")
@@ -248,7 +250,9 @@ def matchmaking_page():
 
         return
 
-    # ---------------- MATCH ----------------
+    # -------------------------------------------------
+    # FIND MATCH
+    # -------------------------------------------------
     if st.button("🔍 Find Best Match", use_container_width=True):
 
         all_users = load_profiles()
