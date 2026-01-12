@@ -154,72 +154,61 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-   # ================= LIVE CHAT (MOBILE + LAPTOP SAFE) =================
-if match_id:
-    st.subheader("Live Learning Room")
+    # ================= LIVE CHAT (MOBILE + LAPTOP SAFE) =================
+    if match_id:
+        st.subheader("Live Learning Room")
 
-    # Partner info
-    cursor.execute("""
-        SELECT a.name
-        FROM profiles p
-        JOIN auth_users a ON a.id = p.user_id
-        WHERE p.match_id=? AND p.user_id!=?
-    """, (match_id, current_user["user_id"]))
-    partner = cursor.fetchone()
-
-    if partner:
-        st.info(f"Paired with **{partner[0]}**")
-
-    # ---------- AUTO REFRESH (SAFE) ----------
-    if "is_typing" not in st.session_state:
-        st.session_state.is_typing = False
-
-    if "last_refresh" not in st.session_state:
-        st.session_state.last_refresh = time.time()
-
-    # Only refresh when NOT typing
-    if not st.session_state.is_typing:
-        if time.time() - st.session_state.last_refresh > 3:
-            st.session_state.last_refresh = time.time()
-            st.rerun()
-
-    # ---------- CHAT DISPLAY ----------
-    chat_box = st.container(height=400)
-    with chat_box:
-        for sender, msg in load_messages(match_id):
-            if sender == current_user["name"]:
-                st.markdown(f"**You:** {msg}")
-            else:
-                st.markdown(f"**{sender}:** {msg}")
-
-    # ---------- SEND MESSAGE (FORM = MOBILE SAFE) ----------
-    with st.form("chat_form", clear_on_submit=True):
-        message = st.text_input(
-            "Type your message",
-            on_change=lambda: st.session_state.update({"is_typing": True})
-        )
-        send = st.form_submit_button("Send")
-
-        if send and message.strip():
-            send_message(match_id, current_user["name"], message)
-            st.session_state.is_typing = False
-            st.rerun()
-
-    # ---------- MANUAL REFRESH (FALLBACK) ----------
-    st.button("🔄 Refresh Chat", on_click=lambda: st.rerun())
-
-    # ---------- END SESSION ----------
-    if st.button("End Session"):
         cursor.execute("""
-            UPDATE profiles
-            SET status='waiting', match_id=NULL
-            WHERE match_id=?
-        """, (match_id,))
-        conn.commit()
-        st.rerun()
+            SELECT a.name
+            FROM profiles p
+            JOIN auth_users a ON a.id = p.user_id
+            WHERE p.match_id=? AND p.user_id!=?
+        """, (match_id, current_user["user_id"]))
+        partner = cursor.fetchone()
 
-    return
+        if partner:
+            st.info(f"Paired with **{partner[0]}**")
 
+        if "is_typing" not in st.session_state:
+            st.session_state.is_typing = False
+        if "last_refresh" not in st.session_state:
+            st.session_state.last_refresh = time.time()
+
+        if not st.session_state.is_typing:
+            if time.time() - st.session_state.last_refresh > 3:
+                st.session_state.last_refresh = time.time()
+                st.rerun()
+
+        chat_box = st.container(height=400)
+        with chat_box:
+            for sender, msg in load_messages(match_id):
+                if sender == current_user["name"]:
+                    st.markdown(f"**You:** {msg}")
+                else:
+                    st.markdown(f"**{sender}:** {msg}")
+
+        with st.form("chat_form", clear_on_submit=True):
+            message = st.text_input(
+                "Type your message",
+                on_change=lambda: st.session_state.update({"is_typing": True})
+            )
+            send = st.form_submit_button("Send")
+
+            if send and message.strip():
+                send_message(match_id, current_user["name"], message)
+                st.session_state.is_typing = False
+                st.rerun()
+
+        if st.button("End Session"):
+            cursor.execute("""
+                UPDATE profiles
+                SET status='waiting', match_id=NULL
+                WHERE match_id=?
+            """, (match_id,))
+            conn.commit()
+            st.rerun()
+
+        return
 
     # ================= FIND MATCH =================
     if st.button("Find Best Match", use_container_width=True):
@@ -238,4 +227,3 @@ if match_id:
             st.rerun()
         else:
             st.warning("No suitable match right now.")
-
