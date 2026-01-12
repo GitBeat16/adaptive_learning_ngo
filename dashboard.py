@@ -2,13 +2,21 @@ import streamlit as st
 import time
 from datetime import timedelta
 from database import cursor, conn
+from streak import init_streak, render_streak_ui
 
+# -----------------------------------------------------
+# CONSTANTS
+# -----------------------------------------------------
 SUBJECTS = ["Mathematics", "English", "Science"]
 TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
 
+# -----------------------------------------------------
+# HELPERS
+# -----------------------------------------------------
 def calculate_streak(dates):
     if not dates:
         return 0
+
     dates = sorted(set(dates), reverse=True)
     streak = 1
     for i in range(len(dates) - 1):
@@ -18,12 +26,25 @@ def calculate_streak(dates):
             break
     return streak
 
+
+# =====================================================
+# DASHBOARD PAGE
+# =====================================================
 def dashboard_page():
 
+    # ✅ INIT STREAK SYSTEM (REQUIRED)
+    init_streak()
+
+    # -------------------------------------------------
+    # HERO
+    # -------------------------------------------------
     st.title(f"Welcome back, {st.session_state.user_name}")
     st.caption("Your learning journey at a glance")
     st.divider()
 
+    # -------------------------------------------------
+    # PROFILE FETCH
+    # -------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
         FROM profiles
@@ -33,6 +54,9 @@ def dashboard_page():
 
     edit_mode = st.session_state.get("edit_profile", False)
 
+    # -------------------------------------------------
+    # PROFILE SETUP / EDIT
+    # -------------------------------------------------
     if not profile or edit_mode:
         st.subheader("Profile Setup")
 
@@ -55,8 +79,15 @@ def dashboard_page():
         if submitted:
             cursor.execute("""
                 INSERT OR REPLACE INTO profiles (
-                    user_id, role, grade, class_level, time,
-                    strong_subjects, weak_subjects, teaches, status
+                    user_id,
+                    role,
+                    grade,
+                    class_level,
+                    time,
+                    strong_subjects,
+                    weak_subjects,
+                    teaches,
+                    status
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting')
             """, (
@@ -77,6 +108,9 @@ def dashboard_page():
 
         return
 
+    # -------------------------------------------------
+    # PROFILE VIEW
+    # -------------------------------------------------
     role, grade, time_slot, strong, weak, teaches = profile
 
     strong_list = strong.split(",") if strong else []
@@ -92,17 +126,33 @@ def dashboard_page():
 
     st.divider()
 
+    # -------------------------------------------------
+    # STREAK UI (NEW — SAVED & SHOWN)
+    # -------------------------------------------------
+    render_streak_ui()
+
+    st.divider()
+
+    # -------------------------------------------------
+    # SUBJECTS
+    # -------------------------------------------------
     s1, s2 = st.columns(2)
 
     with s1:
         st.markdown("### Strong Subjects")
-        for subject in (strong_list or teach_list):
-            st.success(subject) if subject else None
+        if strong_list or teach_list:
+            for subject in (strong_list or teach_list):
+                st.success(subject)
+        else:
+            st.info("No strong subjects added")
 
     with s2:
         st.markdown("### Weak Subjects")
-        for subject in weak_list:
-            st.error(subject) if subject else None
+        if weak_list:
+            for subject in weak_list:
+                st.error(subject)
+        else:
+            st.info("No weak subjects added")
 
     st.divider()
 
@@ -110,6 +160,9 @@ def dashboard_page():
         st.session_state.edit_profile = True
         st.rerun()
 
+    # -------------------------------------------------
+    # SESSION DATA
+    # -------------------------------------------------
     cursor.execute("""
         SELECT mentor, rating, session_date
         FROM ratings
@@ -123,6 +176,9 @@ def dashboard_page():
     total_sessions = len(rows)
     avg_rating = round(sum(r[1] for r in rows) / total_sessions, 2) if total_sessions else "—"
 
+    # -------------------------------------------------
+    # STATS
+    # -------------------------------------------------
     st.subheader("Progress")
 
     c1, c2, c3, c4 = st.columns(4)
