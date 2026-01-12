@@ -7,6 +7,7 @@ from practice import practice_page
 from admin import admin_page
 from auth import auth_page
 from dashboard import dashboard_page
+from matching import find_matches
 
 # ---- DATABASE ----
 from database import init_db, cursor, conn
