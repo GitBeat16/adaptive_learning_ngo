@@ -1,115 +1,171 @@
-# matching.py
 import streamlit as st
-from database import cursor
+import time
+from datetime import datetime, timedelta
+from database import cursor, conn
 
+# =========================================================
+# CONSTANTS
+# =========================================================
 SUBJECTS = ["Mathematics", "English", "Science"]
+MATCH_THRESHOLD = 50
+SESSION_TIMEOUT_MIN = 60
 
-# -------------------------------------------------
-# LOAD ALL PROFILES FROM DB
-# -------------------------------------------------
+# =========================================================
+# DB SAFETY: CREATE REQUIRED TABLES IF NOT EXIST
+# =========================================================
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id TEXT,
+    sender TEXT,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+conn.commit()
+
+# =========================================================
+# CLEANUP STALE USERS (ZOMBIE PREVENTION)
+# =========================================================
+def cleanup_stale_profiles():
+    expiry = datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MIN)
+    cursor.execute("""
+        DELETE FROM profiles
+        WHERE status='waiting' AND created_at < ?
+    """, (expiry,))
+    conn.commit()
+
+# =========================================================
+# DELETE USER + CHAT (EXPLICIT CLEANUP)
+# =========================================================
+def delete_user_session(user_id, match_id=None):
+    cursor.execute("DELETE FROM profiles WHERE user_id=?", (user_id,))
+    if match_id:
+        cursor.execute("DELETE FROM messages WHERE match_id=?", (match_id,))
+    conn.commit()
+
+# =========================================================
+# LOAD ALL ACTIVE PROFILES
+# =========================================================
 def load_profiles():
     cursor.execute("""
         SELECT 
+            a.id,
             a.name,
             p.role,
             p.grade,
             p.time,
             p.strong_subjects,
             p.weak_subjects,
-            p.teaches
+            p.teaches,
+            p.status
         FROM profiles p
         JOIN auth_users a ON a.id = p.user_id
+        WHERE p.status='waiting'
     """)
     rows = cursor.fetchall()
 
     users = []
     for r in rows:
         users.append({
-            "name": r[0],
-            "role": r[1],                     # Student / Teacher
-            "grade": r[2],                    # Grade 10
-            "time": r[3],                     # 5-6 PM
-            "strong": (
-                r[6].split(",") if r[6] else  # teaches (for mentors)
-                r[4].split(",") if r[4] else []
-            ),
-            "weak": r[5].split(",") if r[5] else []
+            "user_id": r[0],
+            "name": r[1],
+            "role": r[2],
+            "grade": r[3],
+            "time": r[4],
+            "strong": r[7].split(",") if r[7] else r[5].split(",") if r[5] else [],
+            "weak": r[6].split(",") if r[6] else []
         })
-
     return users
 
-
-# -------------------------------------------------
-# COMPATIBILITY SCORING
-# -------------------------------------------------
-def calculate_compatibility(mentor, mentee):
+# =========================================================
+# MATCH SCORING (REAL LOGIC)
+# =========================================================
+def calculate_match_score(mentor, mentee):
     score = 0
     reasons = []
 
-    # 1️⃣ Weak ↔ Strong subject match (MOST IMPORTANT)
-    for subject in mentee["weak"]:
-        if subject in mentor["strong"]:
+    # Weak ↔ Strong (CRITICAL)
+    for s in mentee["weak"]:
+        if s in mentor["strong"]:
             score += 50
-            reasons.append(f"Strong in {subject} ↔ Weak in {subject}")
+            reasons.append(f"{mentor['name']} strong in {s}")
 
-    # 2️⃣ Same grade
+    if score == 0:
+        return 0, []
+
+    # Same grade
     if mentor["grade"] == mentee["grade"]:
-        score += 25
+        score += 20
         reasons.append("Same grade")
 
-    # 3️⃣ Same time slot
+    # Same time
     if mentor["time"] == mentee["time"]:
-        score += 15
+        score += 20
         reasons.append("Same time slot")
 
     return score, reasons
 
+# =========================================================
+# FIND BEST MATCH (COMPETITIVE)
+# =========================================================
+def find_best_match(current_user, all_users):
+    cleanup_stale_profiles()
 
-# -------------------------------------------------
-# FIND MATCHES FOR CURRENT USER
-# -------------------------------------------------
-def find_matches(current_user, all_users):
-    matches = []
+    best = None
+    best_score = 0
+    best_reasons = []
 
     for other in all_users:
-        # Skip self
-        if other["name"] == current_user["name"]:
+        if other["user_id"] == current_user["user_id"]:
             continue
-
-        # Opposite roles only
         if other["role"] == current_user["role"]:
             continue
 
-        # Assign mentor / mentee correctly
-        mentor = other if other["role"] in ["Teacher"] else current_user
-        mentee = current_user if current_user["role"] in ["Student"] else other
+        mentor = other if other["role"] == "Teacher" else current_user
+        mentee = current_user if current_user["role"] == "Student" else other
 
-        score, reasons = calculate_compatibility(mentor, mentee)
+        score, reasons = calculate_match_score(mentor, mentee)
 
-        if score >= 40:  # minimum quality threshold
-            matches.append({
-                "mentor": mentor["name"],
-                "mentee": mentee["name"],
-                "score": score,
-                "reasons": reasons
-            })
+        if score > best_score:
+            best = other
+            best_score = score
+            best_reasons = reasons
 
-    matches.sort(key=lambda x: x["score"], reverse=True)
-    return matches
+    if best_score >= MATCH_THRESHOLD:
+        return best, best_score, best_reasons
 
+    return None, 0, []
 
-# -------------------------------------------------
-# STREAMLIT PAGE
-# -------------------------------------------------
+# =========================================================
+# CHAT HELPERS
+# =========================================================
+def load_messages(match_id):
+    cursor.execute("""
+        SELECT sender, message, created_at
+        FROM messages
+        WHERE match_id=?
+        ORDER BY created_at ASC
+    """, (match_id,))
+    return cursor.fetchall()
+
+def send_message(match_id, sender, message):
+    cursor.execute("""
+        INSERT INTO messages (match_id, sender, message)
+        VALUES (?, ?, ?)
+    """, (match_id, sender, message))
+    conn.commit()
+
+# =========================================================
+# MAIN MATCHMAKING PAGE
+# =========================================================
 def matchmaking_page():
 
     st.markdown("""
     <div class="card">
         <h2>Peer Learning Matchmaking</h2>
-        <p>
-            We match students and mentors based on complementary strengths,
-            same grade, and available time slots.
-        </p>
+        <p>We intelligently match students and mentors in real time.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -117,9 +173,9 @@ def matchmaking_page():
     # LOAD CURRENT USER PROFILE
     # -------------------------------------------------
     cursor.execute("""
-        SELECT role, grade, time, strong_subjects, weak_subjects, teaches
+        SELECT role, grade, time, strong_subjects, weak_subjects, teaches, status
         FROM profiles
-        WHERE user_id = ?
+        WHERE user_id=?
     """, (st.session_state.user_id,))
     profile = cursor.fetchone()
 
@@ -127,40 +183,82 @@ def matchmaking_page():
         st.warning("Please complete your profile first.")
         return
 
-    role, grade, time, strong, weak, teaches = profile
+    role, grade, time_slot, strong, weak, teaches, status = profile
 
     current_user = {
+        "user_id": st.session_state.user_id,
         "name": st.session_state.user_name,
         "role": role,
         "grade": grade,
-        "time": time,
+        "time": time_slot,
         "strong": teaches.split(",") if teaches else strong.split(",") if strong else [],
         "weak": weak.split(",") if weak else []
     }
 
     # -------------------------------------------------
-    # FIND MATCHES
+    # IF ALREADY MATCHED → CHAT
     # -------------------------------------------------
-    all_users = load_profiles()
-    results = find_matches(current_user, all_users)
+    if "match_id" in st.session_state and st.session_state.match_id:
+
+        st.subheader("Live Chat")
+
+        msgs = load_messages(st.session_state.match_id)
+        chat_box = st.container(height=420)
+
+        with chat_box:
+            for m in msgs:
+                sender, msg, _ = m
+                if sender == current_user["name"]:
+                    st.markdown(f"<div class='chat-bubble-me'>{msg}</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='chat-bubble-partner'><b>{sender}:</b> {msg}</div>", unsafe_allow_html=True)
+
+        with st.form("chat_form", clear_on_submit=True):
+            txt = st.text_input("Message")
+            if st.form_submit_button("Send") and txt:
+                send_message(st.session_state.match_id, current_user["name"], txt)
+                st.rerun()
+
+        if st.button("🛑 End Session", type="secondary"):
+            delete_user_session(current_user["user_id"], st.session_state.match_id)
+            st.session_state.match_id = None
+            st.rerun()
+
+        return
 
     # -------------------------------------------------
-    # DISPLAY RESULTS
+    # FIND MATCH BUTTON
     # -------------------------------------------------
-    if results:
-        st.success(f"Found {len(results)} compatible match(es)")
+    if st.button("🔍 Find Best Match", use_container_width=True):
 
-        for r in results:
+        all_users = load_profiles()
+        match, score, reasons = find_best_match(current_user, all_users)
+
+        if match:
+            match_id = f"{current_user['user_id']}-{match['user_id']}"
+
+            cursor.execute("""
+                UPDATE profiles SET status='matched'
+                WHERE user_id IN (?, ?)
+            """, (current_user["user_id"], match["user_id"]))
+            conn.commit()
+
+            st.session_state.match_id = match_id
+
+            st.success("🎉 Match Found!")
+
             st.markdown(f"""
             <div class="card">
-                <h4>Compatibility Score: {r['score']}%</h4>
-                <strong>Mentor:</strong> {r['mentor']}<br>
-                <strong>Mentee:</strong> {r['mentee']}<br><br>
-                <strong>Why this match?</strong>
+                <h4>Compatibility Score: {score}%</h4>
+                <strong>Matched With:</strong> {match['name']}
                 <ul>
-                    {''.join(f"<li>{reason}</li>" for reason in r['reasons'])}
+                    {''.join(f"<li>{r}</li>" for r in reasons)}
                 </ul>
             </div>
             """, unsafe_allow_html=True)
-    else:
-        st.warning("No compatible matches found yet.")
+
+            time.sleep(1)
+            st.rerun()
+
+        else:
+            st.warning("No suitable match found right now. Try again later.")
