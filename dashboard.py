@@ -23,43 +23,58 @@ def calculate_streak(dates):
 
 
 # =========================================================
-# DASHBOARD
+# DASHBOARD PAGE
 # =========================================================
 def dashboard_page():
 
-    st.title(f"Hello, {st.session_state.user_name} 👋")
+    # -----------------------------------------------------
+    # HERO
+    # -----------------------------------------------------
+    st.markdown(f"""
+    <div class="card" style="
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: white;
+    ">
+        <h2>Welcome back, {st.session_state.user_name}</h2>
+        <p>Track your learning, mentoring, and impact — all in one place.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # =====================================================
-    # PROFILE
-    # =====================================================
+    # -----------------------------------------------------
+    # PROFILE FETCH
+    # -----------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
         FROM profiles
         WHERE user_id = ?
     """, (st.session_state.user_id,))
-
     profile = cursor.fetchone()
+
     if not profile:
-        st.warning("Please complete your profile first.")
+        st.warning("Please complete your profile to unlock your dashboard.")
         return
 
     role, grade, time_slot, strong, weak, teaches = profile
+    subjects = (teaches or strong or weak or "—").replace(",", ", ")
 
-    st.subheader("Your Details")
+    # -----------------------------------------------------
+    # PROFILE CARD
+    # -----------------------------------------------------
+    st.markdown(f"""
+    <div class="card">
+        <h3>Your Profile</h3>
+        <div style="display:flex; gap:2rem; flex-wrap:wrap;">
+            <div><strong>Role</strong><br>{role}</div>
+            <div><strong>Grade</strong><br>{grade}</div>
+            <div><strong>Time Slot</strong><br>{time_slot}</div>
+            <div><strong>Subjects</strong><br>{subjects}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    col1.write("**Role:** " + role)
-    col1.write("**Grade:** " + grade)
-    col1.write("**Time Slot:** " + time_slot)
-
-    col2.write("**Subjects:**")
-    col2.write((teaches or strong or weak or "—").replace(",", ", "))
-
-    st.divider()
-
-    # =====================================================
-    # FETCH SESSION DATA
-    # =====================================================
+    # -----------------------------------------------------
+    # SESSION DATA
+    # -----------------------------------------------------
     cursor.execute("""
         SELECT mentor, rating, session_date
         FROM ratings
@@ -67,18 +82,17 @@ def dashboard_page():
     """, (st.session_state.user_name, st.session_state.user_name))
 
     rows = cursor.fetchall()
-
     session_dates = [r[2] for r in rows]
-    streak = calculate_streak(session_dates)
 
+    streak = calculate_streak(session_dates)
     total_sessions = len(rows)
     avg_rating = round(sum(r[1] for r in rows) / total_sessions, 2) if total_sessions else "—"
 
-    # =====================================================
+    # -----------------------------------------------------
     # LEADERBOARD
-    # =====================================================
+    # -----------------------------------------------------
     cursor.execute("""
-        SELECT mentor, COUNT(*) as sessions, AVG(rating) as avg_rating
+        SELECT mentor, COUNT(*) AS sessions, AVG(rating) AS avg_rating
         FROM ratings
         GROUP BY mentor
         ORDER BY sessions DESC, avg_rating DESC
@@ -90,36 +104,60 @@ def dashboard_page():
         "—"
     )
 
-    # =====================================================
-    # ANIMATED STATS
-    # =====================================================
-    st.subheader("Your Progress")
+    # -----------------------------------------------------
+    # STATS SECTION
+    # -----------------------------------------------------
+    st.markdown("### Your Progress")
 
     c1, c2, c3, c4 = st.columns(4)
 
-    with st.spinner("Updating your stats..."):
-        time.sleep(0.6)
+    with st.spinner("Loading insights..."):
+        time.sleep(0.4)
 
-    c1.metric("🔥 Streak", f"{streak} days", delta="+1 today" if streak else None)
-    time.sleep(0.2)
+    with c1:
+        st.markdown(f"""
+        <div class="card" style="background:#ecfeff;">
+            <h2>{streak}</h2>
+            <p>Day Streak</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    c2.metric("🏆 Leaderboard Rank", f"#{leaderboard_rank}")
-    time.sleep(0.2)
+    with c2:
+        st.markdown(f"""
+        <div class="card" style="background:#f0fdf4;">
+            <h2>#{leaderboard_rank}</h2>
+            <p>Leaderboard Rank</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    c3.metric("🤝 Sessions", total_sessions)
-    time.sleep(0.2)
+    with c3:
+        st.markdown(f"""
+        <div class="card" style="background:#fff7ed;">
+            <h2>{total_sessions}</h2>
+            <p>Sessions Completed</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    c4.metric("⭐ Avg Rating", avg_rating)
+    with c4:
+        st.markdown(f"""
+        <div class="card" style="background:#fdf4ff;">
+            <h2>{avg_rating}</h2>
+            <p>Average Rating</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Progress animation
+    # -----------------------------------------------------
+    # PROGRESS BAR
+    # -----------------------------------------------------
+    st.markdown("**Consistency Goal (30 days)**")
     st.progress(min(streak / 30, 1.0))
 
     st.divider()
 
-    # =====================================================
-    # HISTORY
-    # =====================================================
-    st.subheader("Session History")
+    # -----------------------------------------------------
+    # SESSION HISTORY
+    # -----------------------------------------------------
+    st.markdown("### Recent Sessions")
 
     if rows:
         history = []
@@ -127,8 +165,8 @@ def dashboard_page():
             history.append({
                 "Partner": r[0],
                 "Rating": r[1],
-                "Date": r[2]
+                "Date": r[2].strftime("%d %b %Y")
             })
-        st.table(history)
+        st.dataframe(history, use_container_width=True)
     else:
-        st.info("No sessions yet. Start matchmaking!")
+        st.info("No sessions yet — start matchmaking to begin your journey.")
