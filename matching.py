@@ -6,6 +6,9 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads/sessions"
 MATCH_THRESHOLD = 30
 
+# =========================================================
+# LOAD USERS
+# =========================================================
 def load_profiles():
     cursor.execute("""
         SELECT a.id, a.name, p.role, p.grade, p.time,
@@ -29,6 +32,9 @@ def load_profiles():
         })
     return users
 
+# =========================================================
+# MATCH LOGIC
+# =========================================================
 def score(u1, u2):
     s = 0
     s += len(set(u1["weak"]) & set(u2["strong"])) * 25
@@ -47,6 +53,9 @@ def find_best(current, users):
             best, best_s = u, sc
     return (best, best_s) if best_s >= MATCH_THRESHOLD else (None, 0)
 
+# =========================================================
+# CHAT + FILE HELPERS
+# =========================================================
 def load_msgs(mid):
     cursor.execute("SELECT sender, message FROM messages WHERE match_id=?", (mid,))
     return cursor.fetchall()
@@ -76,15 +85,32 @@ def load_files(mid):
     )
     return cursor.fetchall()
 
+# =========================================================
+# PAGE
+# =========================================================
 def matchmaking_page():
+
+    # ---------- PAGE HEADER ----------
+    st.markdown("""
+    <div style="
+        padding:1.5rem;
+        border-radius:16px;
+        background:linear-gradient(135deg,#4f46e5,#6366f1);
+        color:white;
+        margin-bottom:1.5rem;
+    ">
+        <h2 style="margin:0;">Peer Learning Session</h2>
+        <p style="margin:0;opacity:0.9;">Match, learn, and collaborate in real time</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
         FROM profiles
         WHERE user_id = ?
     """, (st.session_state.user_id,))
-
     row = cursor.fetchone()
+
     if not row:
         st.warning("Please complete your profile first.")
         return
@@ -101,16 +127,23 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    st.markdown("### 🧠 AI Tutor")
+    # =====================================================
+    # AI TUTOR
+    # =====================================================
+    st.markdown("### AI Study Assistant")
     with st.form("ai"):
-        q = st.text_input("Ask your doubt")
-        if st.form_submit_button("Ask") and q:
+        q = st.text_input("Ask a concept, definition, or example")
+        if st.form_submit_button("Get Help") and q:
             st.success(ask_ai(q))
 
     st.divider()
 
+    # =====================================================
+    # MATCH PREVIEW
+    # =====================================================
     if not match_id:
-        if st.button("🔍 Find Best Match"):
+
+        if st.button("Find Best Match", use_container_width=True):
             m, s = find_best(user, load_profiles())
             if m:
                 st.session_state.proposed_match = m
@@ -118,19 +151,26 @@ def matchmaking_page():
 
         if st.session_state.get("proposed_match"):
             m = st.session_state.proposed_match
+
             st.markdown(f"""
-            <div class="card">
-                <h3>🤝 Match Found</h3>
-                <b>{m['name']}</b><br>
-                Role: {m['role']}<br>
-                Grade: {m['grade']}<br>
-                Time: {m['time']}<br>
-                Score: {st.session_state.proposed_score}
+            <div style="
+                padding:1.2rem;
+                border-radius:14px;
+                border:1px solid #e5e7eb;
+                background:#ffffff;
+                margin-top:1rem;
+            ">
+                <h4 style="margin-bottom:0.5rem;">Suggested Match</h4>
+                <p style="margin:0;"><b>Name:</b> {m['name']}</p>
+                <p style="margin:0;"><b>Role:</b> {m['role']}</p>
+                <p style="margin:0;"><b>Grade:</b> {m['grade']}</p>
+                <p style="margin:0;"><b>Time Slot:</b> {m['time']}</p>
+                <p style="margin-top:0.5rem;"><b>Compatibility Score:</b> {st.session_state.proposed_score}</p>
             </div>
             """, unsafe_allow_html=True)
 
             c1, c2 = st.columns(2)
-            if c1.button("Confirm"):
+            if c1.button("Confirm Match", use_container_width=True):
                 mid = f"{user['user_id']}-{m['user_id']}"
                 cursor.execute("""
                     UPDATE profiles
@@ -141,33 +181,55 @@ def matchmaking_page():
                 st.session_state.proposed_match = None
                 st.rerun()
 
-            if c2.button("Cancel"):
+            if c2.button("Cancel", use_container_width=True):
                 st.session_state.proposed_match = None
+
         return
 
+    # =====================================================
+    # LIVE SESSION
+    # =====================================================
     st.markdown("""
-    <div class="card" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:white">
-        <h2>🎓 Live Learning Room</h2>
+    <div style="
+        padding:1.2rem;
+        border-radius:14px;
+        background:#f8fafc;
+        border:1px solid #e5e7eb;
+        margin-bottom:1rem;
+    ">
+        <h3 style="margin:0;">Live Learning Room</h3>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 💬 Chat")
-    for s, m in load_msgs(match_id):
-        st.markdown(f"**{s}:** {m}")
+    # ---------- CHAT ----------
+    st.markdown("### Session Chat")
+    chat_box = st.container(height=320)
+    with chat_box:
+        for s, m in load_msgs(match_id):
+            st.markdown(f"**{s}:** {m}")
 
     with st.form("chat"):
-        msg = st.text_input("Message")
+        msg = st.text_input("Type your message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, user["name"], msg)
             st.rerun()
 
-    st.markdown("### 📁 Shared Files")
+    st.divider()
+
+    # ---------- FILE SHARING ----------
+    st.markdown("### Shared Resources")
+
     with st.form("files"):
-        f = st.file_uploader("Upload file")
+        f = st.file_uploader("Upload a document or image")
         if st.form_submit_button("Upload") and f:
             save_file(match_id, user["name"], f)
             st.rerun()
 
     for u, n, p in load_files(match_id):
         with open(p, "rb") as file:
-            st.download_button(f"📄 {n} (by {u})", file, file_name=n)
+            st.download_button(
+                label=f"{n} • uploaded by {u}",
+                data=file,
+                file_name=n,
+                use_container_width=True
+            )
