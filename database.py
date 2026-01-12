@@ -31,7 +31,8 @@ def init_db():
         weak_subjects TEXT,
         teaches TEXT,
         status TEXT DEFAULT 'waiting',
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (datetime('now')),
+        match_id TEXT
     )
     """)
 
@@ -59,5 +60,13 @@ def init_db():
         session_date DATE
     )
     """)
+
+    # -------------------------
+    # SAFE MIGRATION (FOR OLD DBS)
+    # -------------------------
+    try:
+        cursor.execute("ALTER TABLE profiles ADD COLUMN match_id TEXT")
+    except:
+        pass  # column already exists
 
     conn.commit()
