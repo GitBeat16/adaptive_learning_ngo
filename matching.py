@@ -3,6 +3,22 @@ import time
 from datetime import datetime, timedelta
 from database import cursor, conn
 
+# ---- SAFE SCHEMA MIGRATION ----
+def migrate_profiles_table():
+    try:
+        cursor.execute("ALTER TABLE profiles ADD COLUMN status TEXT DEFAULT 'waiting'")
+    except:
+        pass  # column already exists
+
+    try:
+        cursor.execute("ALTER TABLE profiles ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except:
+        pass  # column already exists
+
+    conn.commit()
+
+migrate_profiles_table()
+
 # =========================================================
 # CONSTANTS
 # =========================================================
@@ -262,3 +278,4 @@ def matchmaking_page():
 
         else:
             st.warning("No suitable match found right now. Try again later.")
+
