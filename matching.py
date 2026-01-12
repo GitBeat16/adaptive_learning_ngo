@@ -169,16 +169,6 @@ def matchmaking_page():
         if partner:
             st.info(f"Paired with **{partner[0]}**")
 
-        if "is_typing" not in st.session_state:
-            st.session_state.is_typing = False
-        if "last_refresh" not in st.session_state:
-            st.session_state.last_refresh = time.time()
-
-        if not st.session_state.is_typing:
-            if time.time() - st.session_state.last_refresh > 3:
-                st.session_state.last_refresh = time.time()
-                st.rerun()
-
         chat_box = st.container(height=400)
         with chat_box:
             for sender, msg in load_messages(match_id):
@@ -187,16 +177,13 @@ def matchmaking_page():
                 else:
                     st.markdown(f"**{sender}:** {msg}")
 
+        # -------- SEND MESSAGE (FORM ONLY) --------
         with st.form("chat_form", clear_on_submit=True):
-            message = st.text_input(
-                "Type your message",
-                on_change=lambda: st.session_state.update({"is_typing": True})
-            )
+            message = st.text_input("Type your message")
             send = st.form_submit_button("Send")
 
             if send and message.strip():
                 send_message(match_id, current_user["name"], message)
-                st.session_state.is_typing = False
                 st.rerun()
 
         if st.button("End Session"):
