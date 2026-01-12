@@ -18,14 +18,13 @@ def init_db():
     """)
 
     # -------------------------
-    # PROFILES (FIXED)
+    # PROFILES (BASE TABLE)
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS profiles (
         user_id INTEGER UNIQUE,
         role TEXT,
         grade TEXT,
-        class_level INTEGER,
         time TEXT,
         strong_subjects TEXT,
         weak_subjects TEXT,
@@ -35,6 +34,20 @@ def init_db():
         created_at TEXT DEFAULT (datetime('now'))
     )
     """)
+
+    # -------------------------
+    # SAFE MIGRATIONS
+    # -------------------------
+    def add_column_if_missing(column_sql):
+        try:
+            cursor.execute(column_sql)
+        except sqlite3.OperationalError:
+            pass
+
+    # old schema → new schema fix
+    add_column_if_missing(
+        "ALTER TABLE profiles ADD COLUMN class_level INTEGER"
+    )
 
     # -------------------------
     # CHAT MESSAGES
