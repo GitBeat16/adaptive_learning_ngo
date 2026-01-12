@@ -1,9 +1,12 @@
 import streamlit as st
 from practice_data import PRACTICE_DATA
-from streak import update_streak
 from database import cursor
+from streak import init_streak, update_streak
 
 def practice_page():
+
+    # ✅ REQUIRED: initialize streak system
+    init_streak()
 
     if not st.session_state.get("user_id"):
         st.warning("Please log in to access practice.")
@@ -52,6 +55,7 @@ def practice_page():
     st.markdown("### Answer the following questions")
 
     user_answers = []
+
     for i, q in enumerate(questions):
         ans = st.radio(
             f"Q{i + 1}. {q['q']}",
@@ -67,6 +71,8 @@ def practice_page():
         )
 
         st.success(f"Your Score: {score} / {len(questions)}")
+
+        # ✅ streak update now SAFE
         update_streak()
 
         if score == len(questions):
