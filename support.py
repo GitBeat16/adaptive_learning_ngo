@@ -2,62 +2,82 @@ import streamlit as st
 
 def support_page():
 
-    st.title("Support Education Through NGOs")
-
-    st.markdown("""
-    Education has the power to break the cycle of poverty and create long-term social impact.
-    Many students from underprivileged backgrounds lack access to quality learning resources,
-    trained educators, and academic support.
-
-    By supporting education-focused NGOs, you help ensure access to learning, nutrition,
-    safety, and equal opportunities for children across India.
-    """)
+    st.header("Support Education & Health Causes")
+    st.write(
+        "Your contribution can transform lives. Below are verified and trusted organisations "
+        "working in education, child welfare, and medical support. "
+        "You will be redirected to their **official websites** for donations."
+    )
 
     st.divider()
 
-    st.subheader("Prominent Indian Education NGOs")
+    # ---------- EDUCATION & CHILD WELFARE ----------
+    st.subheader("Education & Child Welfare (India)")
 
-    ngos = [
+    education_ngos = [
         ("Akshaya Patra Foundation",
-         "Eliminates classroom hunger with mid-day meals.",
-         "https://www.akshayapatra.org"),
+         "https://www.akshayapatra.org",
+         "Provides mid-day meals to improve school attendance and nutrition."),
 
         ("Pratham",
-         "Improves learning quality through foundational literacy.",
-         "https://www.pratham.org"),
+         "https://www.pratham.org",
+         "Improves foundational literacy and numeracy for children."),
 
         ("Nanhi Kali",
-         "Supports underprivileged girls' education.",
-         "https://www.nanhikali.org"),
-
-        ("Magic Bus",
-         "Activity-based learning for education and life skills.",
-         "https://www.magicbus.org"),
+         "https://www.nanhikali.org",
+         "Supports education for underprivileged girls."),
 
         ("Teach For India",
-         "Addresses educational inequity in low-income schools.",
-         "https://www.teachforindia.org"),
+         "https://www.teachforindia.org",
+         "Places fellows in low-income schools to address education inequity."),
 
         ("Smile Foundation",
-         "Mission Education for underprivileged children.",
-         "https://www.smilefoundationindia.org"),
+         "https://www.smilefoundationindia.org",
+         "Runs Mission Education for holistic child development."),
 
         ("CRY (Child Rights and You)",
-         "Child rights and access to education.",
-         "https://www.cry.org"),
+         "https://www.cry.org",
+         "Works to ensure children’s rights, including education."),
 
-        ("Bal Raksha Bharat",
-         "Early learning, education, and child safety.",
-         "https://www.savethechildren.in")
+        ("Bal Raksha Bharat (Save the Children India)",
+         "https://www.balrakshabharat.org",
+         "Focuses on education, child protection, and early learning.")
     ]
 
-    for name, desc, link in ngos:
-        st.markdown(f"### {name}")
-        st.write(desc)
+    for name, link, desc in education_ngos:
+        st.markdown(f"**{name}**  \n{desc}")
         st.markdown(f"[Visit Official Website]({link})")
-        st.markdown("---")
+        st.write("---")
 
-    st.subheader("Ways to Support")
+    # ---------- HEALTH & MEDICAL SUPPORT ----------
+    st.subheader("Health & Medical Support Foundations")
+
+    health_foundations = [
+        ("Tata Memorial Centre",
+         "https://tmc.gov.in",
+         "India’s leading cancer treatment and research institution."),
+
+        ("Indian Cancer Society",
+         "https://www.indiancancersociety.org",
+         "Supports cancer awareness, detection, and patient care."),
+
+        ("Make-A-Wish India",
+         "https://www.makeawishindia.org",
+         "Grants wishes to children with critical illnesses."),
+
+        ("Doctors Without Borders (MSF India)",
+         "https://www.msf.in",
+         "Provides medical aid in crisis situations."),
+
+        ("GiveIndia (Verified Platform)",
+         "https://www.giveindia.org",
+         "Donation platform vetting NGOs across education and health.")
+    ]
+
+    for name, link, desc in health_foundations:
+        st.markdown(f"**{name}**  \n{desc}")
+        st.markdown(f"[Visit Official Website]({link})")
+        st.write("---")
 
     st.markdown("""
     - **Crowdfunding Platforms**
