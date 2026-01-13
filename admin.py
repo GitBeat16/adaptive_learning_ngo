@@ -3,29 +3,21 @@ from database import cursor
 
 def admin_page():
     st.title("Admin Dashboard")
-    st.caption("Overview of users, roles, and platform activity")
+    st.caption("Overview of users, roles, activity, and session feedback")
     st.divider()
 
     # =================================================
-    # TOTAL SIGNUPS
+    # PLATFORM STATISTICS
     # =================================================
     st.subheader("Platform Statistics")
 
     cursor.execute("SELECT COUNT(*) FROM auth_users")
     total_users = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT COUNT(*) 
-        FROM profiles 
-        WHERE role='Student'
-    """)
+    cursor.execute("SELECT COUNT(*) FROM profiles WHERE role='Student'")
     students = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT COUNT(*) 
-        FROM profiles 
-        WHERE role='Teacher'
-    """)
+    cursor.execute("SELECT COUNT(*) FROM profiles WHERE role='Teacher'")
     teachers = cursor.fetchone()[0]
 
     c1, c2, c3 = st.columns(3)
@@ -90,9 +82,71 @@ def admin_page():
     st.divider()
 
     # =================================================
-    # MENTOR LEADERBOARD
+    # SESSION RATINGS (NEW – AUDIT VIEW)
     # =================================================
-    st.subheader("Mentor Leaderboard")
+    st.subheader("Session Ratings (All Sessions)")
+
+    cursor.execute("""
+        SELECT 
+            match_id,
+            rater_name,
+            rating,
+            rated_at
+        FROM session_ratings
+        ORDER BY rated_at DESC
+    """)
+
+    session_ratings = cursor.fetchall()
+
+    if not session_ratings:
+        st.info("No session ratings submitted yet.")
+    else:
+        for mid, name, rating, date in session_ratings:
+            st.markdown(f"""
+            <div class="card">
+                <b>Session:</b> {mid}<br>
+                <b>Rated By:</b> {name}<br>
+                <b>Rating:</b> ⭐ {rating}<br>
+                <b>Date:</b> {date}
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # =================================================
+    # TOP RATED USERS (SESSION-BASED)
+    # =================================================
+    st.subheader("Top Rated Users (Based on Sessions)")
+
+    cursor.execute("""
+        SELECT 
+            rater_name,
+            AVG(rating) AS avg_rating,
+            COUNT(*) AS total_sessions
+        FROM session_ratings
+        GROUP BY rater_name
+        HAVING total_sessions >= 1
+        ORDER BY avg_rating DESC, total_sessions DESC
+    """)
+
+    leaderboard = cursor.fetchall()
+
+    if not leaderboard:
+        st.info("No leaderboard data yet.")
+    else:
+        for i, row in enumerate(leaderboard, 1):
+            name, avg, count = row
+            st.write(
+                f"{i}. **{name}** — ⭐ {round(avg, 2)} "
+                f"({count} sessions)"
+            )
+
+    st.divider()
+
+    # =================================================
+    # LEGACY MENTOR LEADERBOARD (KEPT)
+    # =================================================
+    st.subheader("Legacy Mentor Leaderboard")
 
     cursor.execute("""
         SELECT mentor, AVG(rating) AS avg_rating, COUNT(*) AS total_sessions
@@ -101,12 +155,12 @@ def admin_page():
         ORDER BY avg_rating DESC
     """)
 
-    ratings = cursor.fetchall()
+    legacy = cursor.fetchall()
 
-    if not ratings:
-        st.info("No ratings yet.")
+    if not legacy:
+        st.info("No legacy ratings yet.")
     else:
-        for i, r in enumerate(ratings, 1):
+        for i, r in enumerate(legacy, 1):
             st.write(
                 f"{i}. **{r[0]}** — ⭐ {round(r[1], 2)} "
                 f"({r[2]} sessions)"
