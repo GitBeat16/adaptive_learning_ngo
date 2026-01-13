@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 from groq import Groq
 from supabase import create_client, Client
 import time
@@ -9,17 +8,16 @@ from datetime import datetime, timedelta
 # 1. APP CONFIGURATION & STYLING
 # =========================================================
 st.set_page_config(
-    page_title="Sahay: Peer Learning & Workshops",
+    page_title="Sahay: Peer Learning Platform",
     page_icon="🎓",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # --- CUSTOM CSS (DARK MODE PROOF) ---
 st.markdown("""
 <style>
     [data-testid="stAppViewContainer"] { background-color: #f8f9fa; color: #31333F; }
-    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e5e7eb; }
     .stTextInput input, .stSelectbox div[data-baseweb="select"] { background-color: #ffffff !important; color: #31333F !important; border: 1px solid #d1d5db; }
     .stMarkdown label, .stTextInput label, .stSelectbox label { color: #31333F !important; font-weight: 600; }
     h1, h2, h3 { color: #1e293b !important; font-family: 'Inter', sans-serif; }
@@ -31,31 +29,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. SIDEBAR: LIVE NGO WORKSHOPS (NEW FEATURE 📢)
-# =========================================================
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2991/2991108.png", width=50)
-    st.markdown("### 📢 Live NGO Classes")
-    st.info("Waiting for a match? Join a group class instead!")
-    
-    # --- YOUR CODE INTEGRATED HERE ---
-    data = {
-        'session_name': ['🧮 Vedic Maths (Grade 5-8)', '🔬 Science Experiments', '🗣️ Spoken English Club'],
-        'meet_link': ['https://meet.google.com/abc-defg-hij', 'https://meet.google.com/klm-nopq-rst', 'https://meet.google.com/uvw-xyz-123']
-    }
-    df = pd.DataFrame(data)
-    
-    selected_session = st.selectbox("Select Class:", df['session_name'])
-    session_info = df[df['session_name'] == selected_session].iloc[0]
-    
-    st.markdown(f"**Topic:** {session_info['session_name']}")
-    st.link_button(f"🎥 Join {selected_session}", session_info['meet_link'], type="primary", use_container_width=True)
-    
-    st.divider()
-    st.caption("Need Help? Email support@sahay.org")
-
-# =========================================================
-# 3. BACKEND CONNECTIONS
+# 2. BACKEND CONNECTIONS
 # =========================================================
 try:
     supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -69,17 +43,30 @@ if "GROQ_API_KEY" in st.secrets:
     except: pass
 
 # =========================================================
-# 4. HELPER FUNCTIONS
+# 3. HELPER FUNCTIONS (NOW WITH CLEANUP)
 # =========================================================
 
 def cleanup_stale_data():
+    """
+    Deletes profiles that have been 'waiting' for more than 1 hour.
+    This fixes the issue of matching with offline/zombie users.
+    """
     try:
+        # Calculate time 1 hour ago
         one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
-        supabase.table("profiles").delete().eq("status", "waiting").lt("created_at", one_hour_ago).execute()
-    except: pass
+        
+        # Delete old waiting profiles
+        supabase.table("profiles").delete()\
+            .eq("status", "waiting")\
+            .lt("created_at", one_hour_ago)\
+            .execute()
+    except:
+        pass # Fail silently to not disrupt user
 
 def delete_user_data(user_name):
-    try: supabase.table("profiles").delete().eq("name", user_name).execute()
+    """Deletes the specific user when they click End Session"""
+    try:
+        supabase.table("profiles").delete().eq("name", user_name).execute()
     except: pass
 
 def upload_file(file_obj, match_id):
@@ -95,6 +82,7 @@ def calculate_match_score(me, candidate):
     score = 0
     my_lang = set(x.strip() for x in (me.get('languages') or "").split(',') if x.strip())
     their_lang = set(x.strip() for x in (candidate.get('languages') or "").split(',') if x.strip())
+    
     if not my_lang.intersection(their_lang): return 0
     score += 20 
 
@@ -122,7 +110,10 @@ def calculate_match_score(me, candidate):
     return score
 
 def find_best_match(my_profile):
+    # 1. First, clean up zombie users from the DB
     cleanup_stale_data()
+    
+    # 2. Then search for fresh candidates
     opposite = "Teacher" if my_profile['role'] == "Student" else "Student"
     response = supabase.table("profiles").select("*").eq("role", opposite).eq("time_slot", my_profile['time_slot']).eq("status", "waiting").execute()
     candidates = response.data
@@ -169,7 +160,7 @@ def create_match_record(p1, p2):
     return m_id
 
 # =========================================================
-# 5. MAIN APP LOGIC
+# 4. MAIN APP LOGIC
 # =========================================================
 if "stage" not in st.session_state: st.session_state.stage = 1
 if "user_name" not in st.session_state: st.session_state.user_name = ""
@@ -319,7 +310,9 @@ elif st.session_state.stage == 3:
                     except Exception as e: st.error(f"AI Error: {e}")
             
             st.markdown("---")
+            # 🔴 THIS IS THE NEW DELETE BUTTON
             if st.button("🛑 End Session", type="secondary", use_container_width=True):
-                delete_user_data(st.session_state.user_name)
+                delete_user_data(st.session_state.user_name) # Explicitly delete user
                 st.session_state.stage = 1
                 st.rerun()
+    
