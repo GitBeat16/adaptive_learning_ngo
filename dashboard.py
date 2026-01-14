@@ -221,7 +221,7 @@ def dashboard_page():
     # -------------------------------------------------
     # 🔔 REMATCH REQUESTS
     # -------------------------------------------------
-    st.subheader("✪ Rematch Requests")
+    st.subheader("⚙︎ Rematch Requests")
 
     requests = load_incoming_requests(st.session_state.user_id)
 
