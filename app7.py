@@ -36,16 +36,19 @@ html, body, [class*="css"] {
     font-family: 'Poppins','Inter','Segoe UI',sans-serif;
 }
 
+/* App background */
 .stApp {
     background: linear-gradient(135deg,#f5f7fa,#eef1f5);
 }
 
+/* Sidebar */
 section[data-testid="stSidebar"] {
   background: rgba(255,255,255,0.85);
   backdrop-filter: blur(12px);
   border-right: 1px solid rgba(200,200,200,0.3);
 }
 
+/* Sidebar header */
 .sidebar-header {
   padding:1.4rem;
   border-radius:18px;
@@ -55,11 +58,69 @@ section[data-testid="stSidebar"] {
   text-align:center;
 }
 
+/* Cards */
 .card {
-  background: rgba(255,255,255,.92);
-  border-radius:18px;
-  padding:1.6rem;
+  background: rgba(255,255,255,.95);
+  border-radius:20px;
+  padding:1.8rem;
   box-shadow:0 12px 30px rgba(0,0,0,.06);
+}
+
+/* ================= DONATE BUTTON ================= */
+.donate-btn {
+  position:relative;
+  overflow:hidden;
+  display:block;
+  width:100%;
+  padding:0.9rem 1rem;
+  margin-top:1rem;
+  border-radius:999px;
+  text-align:center;
+  font-weight:700;
+  font-size:0.95rem;
+
+  color:#ffffff !important;
+  text-decoration:none !important;
+
+  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  cursor:pointer;
+  transition:transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Hover */
+.donate-btn:hover {
+  transform:translateY(-2px);
+  box-shadow:0 10px 25px rgba(79,70,229,.35);
+  background:linear-gradient(135deg,#4f46e5,#4338ca);
+}
+
+/* ================= RIPPLE EFFECT ================= */
+.donate-btn::after {
+  content:"";
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:10px;
+  height:10px;
+  background:rgba(255,255,255,0.45);
+  border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);
+  opacity:0;
+}
+
+.donate-btn:active::after {
+  animation:ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  0% {
+    transform:translate(-50%,-50%) scale(0);
+    opacity:0.7;
+  }
+  100% {
+    transform:translate(-50%,-50%) scale(20);
+    opacity:0;
+  }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -101,7 +162,6 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # Navigation
     for label in [
         "Dashboard",
         "Matchmaking",
@@ -138,13 +198,13 @@ elif page == "Practice":
     practice_page()
 
 elif page == "Donations":
+
     st.markdown("""
     <div class="card">
         <h2>🤝 Support Education & Nutrition</h2>
         <p>
-            Your contribution can help educate children, provide nutritious meals,
-            and empower communities across India.
-            Choose a trusted NGO below to make a difference.
+            Your contribution helps children learn better, stay nourished,
+            and build a brighter future.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -157,9 +217,9 @@ elif page == "Donations":
         st.markdown("""
         <div class="card">
             <h4>Pratham</h4>
-            <p>Improving learning outcomes for children across India.</p>
-            <a href="https://pratham.org/donation/" target="_blank">
-                <button style="width:100%">Donate</button>
+            <p>Improving foundational learning outcomes for millions of children.</p>
+            <a class="donate-btn" href="https://pratham.org/donation/" target="_blank">
+                Donate to Pratham
             </a>
         </div>
         """, unsafe_allow_html=True)
@@ -168,9 +228,9 @@ elif page == "Donations":
         st.markdown("""
         <div class="card">
             <h4>Akshaya Patra</h4>
-            <p>Providing mid-day meals to millions of school children.</p>
-            <a href="https://www.akshayapatra.org/onlinedonations" target="_blank">
-                <button style="width:100%">Donate</button>
+            <p>Ensuring no child is deprived of education due to hunger.</p>
+            <a class="donate-btn" href="https://www.akshayapatra.org/onlinedonations" target="_blank">
+                Donate to Akshaya Patra
             </a>
         </div>
         """, unsafe_allow_html=True)
@@ -180,8 +240,8 @@ elif page == "Donations":
         <div class="card">
             <h4>Teach For India</h4>
             <p>Building a movement to eliminate educational inequity.</p>
-            <a href="https://www.teachforindia.org/donate" target="_blank">
-                <button style="width:100%">Donate</button>
+            <a class="donate-btn" href="https://www.teachforindia.org/donate" target="_blank">
+                Donate to Teach For India
             </a>
         </div>
         """, unsafe_allow_html=True)
