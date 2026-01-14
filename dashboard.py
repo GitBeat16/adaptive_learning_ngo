@@ -97,7 +97,7 @@ def dashboard_page():
     # -------------------------------------------------
     if not profile or edit_mode:
 
-        st.subheader("Profile Setup" if not profile else "✎ Edit Profile")
+        st.subheader("Profile Setup" if not profile else " Edit Profile")
 
         # prefill values
         role = profile[0] if profile else "Student"
@@ -182,7 +182,7 @@ def dashboard_page():
             st.info("Not added")
 
     st.write("")
-    if st.button("✏️ Edit Profile"):
+    if st.button("✎ Edit Profile"):
         st.session_state.edit_profile = True
         st.rerun()
 
@@ -197,7 +197,7 @@ def dashboard_page():
     # -------------------------------------------------
     # 📜 MATCH HISTORY
     # -------------------------------------------------
-    st.subheader("📜 Match History")
+    st.subheader("⚙︎ Match History")
 
     history = load_match_history(st.session_state.user_id)
 
@@ -210,7 +210,7 @@ def dashboard_page():
                 st.write(f"**Rating Given:** {rating}/5")
 
                 if st.button(
-                    f"🔁 Request Re-match with {partner_name}",
+                    f"↻ Request Re-match with {partner_name}",
                     key=f"rematch_{match_id}"
                 ):
                     send_rematch_request(partner_id)
@@ -221,7 +221,7 @@ def dashboard_page():
     # -------------------------------------------------
     # 🔔 REMATCH REQUESTS
     # -------------------------------------------------
-    st.subheader("🔔 Rematch Requests")
+    st.subheader("✪ Rematch Requests")
 
     requests = load_incoming_requests(st.session_state.user_id)
 
