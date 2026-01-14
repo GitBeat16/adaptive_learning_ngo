@@ -117,10 +117,7 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button(
-            "⭐" if i < st.session_state.rating else "☆",
-            key=f"rate_{i}"
-        ):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -143,6 +140,26 @@ def show_rating_ui(match_id):
         st.success("Thank you for your feedback! 🎉")
         st.session_state.session_rated = True
 
+        # 🔁 RETURN TO MATCHMAKING
+        reset_to_matchmaking()
+
+# =========================================================
+# 🔁 RESET FUNCTION (KEY FIX)
+# =========================================================
+def reset_to_matchmaking():
+    for k in [
+        "current_match_id",
+        "partner",
+        "partner_score",
+        "session_ended",
+        "session_rated",
+        "celebrated",
+        "rating"
+    ]:
+        st.session_state.pop(k, None)
+
+    st.rerun()
+
 # =========================================================
 # PAGE
 # =========================================================
@@ -162,7 +179,7 @@ def matchmaking_page():
 
     # ---------- PROFILE ----------
     cursor.execute("""
-        SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
+        SELECT role, grade, time, strong_subjects, weak_subjects, teaches
         FROM profiles WHERE user_id=?
     """, (st.session_state.user_id,))
     row = cursor.fetchone()
@@ -171,7 +188,7 @@ def matchmaking_page():
         st.warning("Please complete your profile first.")
         return
 
-    role, grade, time_slot, strong, weak, teaches, db_match_id = row
+    role, grade, time_slot, strong, weak, teaches = row
 
     user = {
         "user_id": st.session_state.user_id,
@@ -195,7 +212,7 @@ def matchmaking_page():
     st.divider()
 
     # =====================================================
-    # MATCHING
+    # MATCHMAKING (DEFAULT VIEW)
     # =====================================================
     if not st.session_state.current_match_id:
 
@@ -225,7 +242,6 @@ def matchmaking_page():
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
 
-                # 🔁 RESET SESSION STATE
                 st.session_state.current_match_id = session_id
                 st.session_state.partner = m
                 st.session_state.partner_score = st.session_state.proposed_score
@@ -259,11 +275,11 @@ def matchmaking_page():
         st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
         st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
 
-    # 🔴 END SESSION — ALWAYS VISIBLE
+    # 🔴 END SESSION
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if not st.session_state.session_ended:
-            if st.button("End Session", use_container_width=True):
+            if st.button("🔴 End Session", use_container_width=True):
                 end_session(match_id)
                 st.session_state.session_ended = True
 
