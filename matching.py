@@ -139,12 +139,22 @@ def show_rating_ui(match_id):
 
         st.success("Thank you for your feedback! 🎉")
         st.session_state.session_rated = True
-
-        # 🔁 RETURN TO MATCHMAKING
         reset_to_matchmaking()
 
 # =========================================================
-# 🔁 RESET FUNCTION (KEY FIX)
+# 📜 MATCH HISTORY
+# =========================================================
+def load_match_history(user_id):
+    cursor.execute("""
+        SELECT match_id, rating
+        FROM session_ratings
+        WHERE rater_id=?
+        ORDER BY rowid DESC
+    """, (user_id,))
+    return cursor.fetchall()
+
+# =========================================================
+# 🔁 RESET TO MATCHMAKING
 # =========================================================
 def reset_to_matchmaking():
     for k in [
@@ -154,7 +164,9 @@ def reset_to_matchmaking():
         "session_ended",
         "session_rated",
         "celebrated",
-        "rating"
+        "rating",
+        "proposed_match",
+        "proposed_score"
     ]:
         st.session_state.pop(k, None)
 
@@ -212,7 +224,7 @@ def matchmaking_page():
     st.divider()
 
     # =====================================================
-    # MATCHMAKING (DEFAULT VIEW)
+    # MATCHMAKING
     # =====================================================
     if not st.session_state.current_match_id:
 
@@ -252,63 +264,73 @@ def matchmaking_page():
 
                 st.rerun()
 
-        return
+    else:
+        # =====================================================
+        # 🎈 LIVE SESSION
+        # =====================================================
+        match_id = st.session_state.current_match_id
+
+        if not st.session_state.celebrated:
+            st.success("🎉 You're matched! Welcome to your live session.")
+            st.balloons()
+            st.session_state.celebrated = True
+
+        partner = st.session_state.partner
+        if partner:
+            st.markdown("### 🤝 Your Learning Partner")
+            st.write(f"**Name:** {partner['name']}")
+            st.write(f"**Role:** {partner['role']}")
+            st.write(f"**Grade:** {partner['grade']}")
+            st.write(f"**Time Slot:** {partner['time']}")
+            st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
+            st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
+            st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
+
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            if not st.session_state.session_ended:
+                if st.button("🔴 End Session", use_container_width=True):
+                    end_session(match_id)
+                    st.session_state.session_ended = True
+
+        st.divider()
+
+        st.markdown("### 💬 Live Learning Room")
+        for s, m in load_msgs(match_id):
+            st.markdown(f"**{s}:** {m}")
+
+        with st.form("chat_form"):
+            msg = st.text_input("Type your message")
+            if st.form_submit_button("Send") and msg:
+                send_msg(match_id, user["name"], msg)
+                st.rerun()
+
+        st.divider()
+        st.markdown("### 📂 Shared Resources")
+        with st.form("file_form"):
+            f = st.file_uploader("Upload file")
+            if st.form_submit_button("Upload") and f:
+                save_file(match_id, user["name"], f)
+                st.rerun()
+
+        for u, n, p in load_files(match_id):
+            with open(p, "rb") as file:
+                st.download_button(n, file, use_container_width=True)
+
+        if st.session_state.session_ended and not st.session_state.session_rated:
+            show_rating_ui(match_id)
 
     # =====================================================
-    # 🎈 LIVE SESSION
+    # 📜 MATCH HISTORY
     # =====================================================
-    match_id = st.session_state.current_match_id
-
-    if not st.session_state.celebrated:
-        st.success("🎉 You're matched! Welcome to your live session.")
-        st.balloons()
-        st.session_state.celebrated = True
-
-    partner = st.session_state.partner
-    if partner:
-        st.markdown("### 🤝 Your Learning Partner")
-        st.write(f"**Name:** {partner['name']}")
-        st.write(f"**Role:** {partner['role']}")
-        st.write(f"**Grade:** {partner['grade']}")
-        st.write(f"**Time Slot:** {partner['time']}")
-        st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
-        st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
-        st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
-
-    # 🔴 END SESSION
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if not st.session_state.session_ended:
-            if st.button("🔴 End Session", use_container_width=True):
-                end_session(match_id)
-                st.session_state.session_ended = True
-
     st.divider()
+    st.markdown("## 📜 Match History")
 
-    # CHAT
-    st.markdown("### 💬 Live Learning Room")
-    for s, m in load_msgs(match_id):
-        st.markdown(f"**{s}:** {m}")
+    history = load_match_history(st.session_state.user_id)
 
-    with st.form("chat_form"):
-        msg = st.text_input("Type your message")
-        if st.form_submit_button("Send") and msg:
-            send_msg(match_id, user["name"], msg)
-            st.rerun()
-
-    # FILES
-    st.divider()
-    st.markdown("### 📂 Shared Resources")
-    with st.form("file_form"):
-        f = st.file_uploader("Upload file")
-        if st.form_submit_button("Upload") and f:
-            save_file(match_id, user["name"], f)
-            st.rerun()
-
-    for u, n, p in load_files(match_id):
-        with open(p, "rb") as file:
-            st.download_button(n, file, use_container_width=True)
-
-    # ⭐ RATING
-    if st.session_state.session_ended and not st.session_state.session_rated:
-        show_rating_ui(match_id)
+    if not history:
+        st.info("No past sessions yet.")
+    else:
+        for mid, rating in history:
+            with st.expander(f"Session {mid} • ⭐ {rating}/5"):
+                st.write(f"**Rating Given:** {rating}/5")
