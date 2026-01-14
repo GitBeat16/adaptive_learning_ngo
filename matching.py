@@ -8,7 +8,7 @@ UPLOAD_DIR = "uploads/sessions"
 MATCH_THRESHOLD = 20
 
 # =========================================================
-# LOAD WAITING USERS
+# LOAD USERS
 # =========================================================
 def load_profiles():
     cursor.execute("""
@@ -34,7 +34,7 @@ def load_profiles():
     return users
 
 # =========================================================
-# MATCH SCORING
+# MATCH LOGIC
 # =========================================================
 def score(u1, u2):
     s = 0
@@ -59,75 +59,40 @@ def find_best(current, users):
 # =========================================================
 # CHAT + FILE HELPERS
 # =========================================================
-def load_msgs(match_id):
+def load_msgs(mid):
     cursor.execute(
         "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (match_id,))
+        (mid,))
     return cursor.fetchall()
 
-def send_msg(match_id, sender, message):
+def send_msg(mid, sender, message):
     cursor.execute(
         "INSERT INTO messages (match_id, sender, message) VALUES (?,?,?)",
-        (match_id, sender, message))
+        (mid, sender, message))
     conn.commit()
 
-def save_file(match_id, uploader, file):
+def save_file(mid, uploader, file):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{match_id}_{file.name}"
+    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
     with open(path, "wb") as f:
         f.write(file.getbuffer())
 
     cursor.execute("""
         INSERT INTO session_files (match_id, uploader, filename, filepath)
         VALUES (?,?,?,?)
-    """, (match_id, uploader, file.name, path))
+    """, (mid, uploader, file.name, path))
     conn.commit()
 
-def load_files(match_id):
+def load_files(mid):
     cursor.execute("""
         SELECT uploader, filename, filepath
         FROM session_files
         WHERE match_id=?
-    """, (match_id,))
+    """, (mid,))
     return cursor.fetchall()
 
 # =========================================================
-# ⭐ RATING UI
-# =========================================================
-def show_rating_ui(match_id):
-    st.subheader("⭐ Rate Your Session")
-
-    if "rating" not in st.session_state:
-        st.session_state.rating = 0
-
-    cols = st.columns(5)
-    for i in range(5):
-        star = "⭐" if i < st.session_state.rating else "☆"
-        if cols[i].button(star, key=f"rate_{i}"):
-            st.session_state.rating = i + 1
-
-    if st.button("Submit Rating", use_container_width=True):
-        if st.session_state.rating == 0:
-            st.warning("Please select a rating")
-            return
-
-        cursor.execute("""
-            INSERT INTO session_ratings
-            (match_id, rater_id, rater_name, rating)
-            VALUES (?, ?, ?, ?)
-        """, (
-            match_id,
-            st.session_state.user_id,
-            st.session_state.user_name,
-            st.session_state.rating
-        ))
-        conn.commit()
-
-        st.success("Thanks for your feedback!")
-        st.session_state.rating_done = True
-
-# =========================================================
-# 🤖 AI QUIZ FROM CHAT
+# AI QUIZ FROM CHAT
 # =========================================================
 def generate_quiz_from_chat(match_id):
     msgs = load_msgs(match_id)
@@ -165,14 +130,13 @@ Discussion:
                 ans = l.split(":")[-1].strip()
 
         if opts and ans:
-            questions.append({
-                "question": q,
-                "options": opts,
-                "answer": ans
-            })
+            questions.append({"question": q, "options": opts, "answer": ans})
 
     return questions
 
+# =========================================================
+# PRACTICE QUIZ UI
+# =========================================================
 def render_practice_quiz(match_id):
     st.markdown("## 🧠 Practice Quiz (AI Generated)")
 
@@ -188,7 +152,7 @@ def render_practice_quiz(match_id):
     for i, q in enumerate(st.session_state.quiz_questions):
         st.markdown(f"**Q{i+1}. {q['question']}**")
         st.session_state.quiz_answers[i] = st.radio(
-            "Choose an option",
+            "Choose",
             list(q["options"].keys()),
             format_func=lambda x: f"{x}) {q['options'][x]}",
             key=f"quiz_{i}"
@@ -210,21 +174,47 @@ def render_practice_quiz(match_id):
         if score == total:
             st.balloons()
         elif score == 0:
-            st.error("All answers were incorrect")
+            st.error("All answers incorrect")
             st.snow()
 
-        if st.button("Back to Matchmaking"):
-            reset_to_matchmaking()
+# =========================================================
+# RATING
+# =========================================================
+def show_rating_ui(match_id):
+    st.subheader("⭐ Rate Your Session")
+
+    if "rating" not in st.session_state:
+        st.session_state.rating = 0
+
+    cols = st.columns(5)
+    for i in range(5):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
+            st.session_state.rating = i + 1
+
+    if st.button("Submit Rating", use_container_width=True):
+        cursor.execute("""
+            INSERT INTO session_ratings
+            (match_id, rater_id, rater_name, rating)
+            VALUES (?,?,?,?)
+        """, (
+            match_id,
+            st.session_state.user_id,
+            st.session_state.user_name,
+            st.session_state.rating
+        ))
+        conn.commit()
+        st.success("Thanks for rating! 🎉")
+        reset_to_matchmaking()
 
 # =========================================================
 # RESET
 # =========================================================
 def reset_to_matchmaking():
     for k in [
-        "current_match_id", "session_start", "celebrated",
-        "rating", "rating_done",
+        "current_match_id", "partner", "partner_score",
+        "session_start", "session_ended",
         "quiz_questions", "quiz_answers", "quiz_submitted",
-        "proposed_match", "proposed_score"
+        "rating", "proposed_match", "proposed_score"
     ]:
         st.session_state.pop(k, None)
     st.rerun()
@@ -234,30 +224,31 @@ def reset_to_matchmaking():
 # =========================================================
 def matchmaking_page():
 
-    # ------------------------------
-    # DB → SESSION SYNC (CRITICAL)
-    # ------------------------------
-    cursor.execute("""
-        SELECT match_id FROM profiles WHERE user_id=?
-    """, (st.session_state.user_id,))
-    db_row = cursor.fetchone()
-
-    if db_row and db_row[0]:
-        if st.session_state.get("current_match_id") != db_row[0]:
-            st.session_state.current_match_id = db_row[0]
-            st.session_state.session_start = time.time()
-            st.session_state.celebrated = False
-
     for k, v in {
         "current_match_id": None,
-        "celebrated": False,
-        "session_ended": False,
-        "rating_done": False
+        "partner": None,
+        "partner_score": None,
+        "proposed_match": None,
+        "proposed_score": None,
+        "session_ended": False
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # 🤖 AI ASSISTANT
+    # ---------------- DB SYNC (CRITICAL FIX)
+    cursor.execute(
+        "SELECT match_id FROM profiles WHERE user_id=?",
+        (st.session_state.user_id,)
+    )
+    db_match = cursor.fetchone()
+
+    if db_match and db_match[0]:
+        if st.session_state.current_match_id != db_match[0]:
+            st.session_state.current_match_id = db_match[0]
+            st.session_state.session_start = time.time()
+            st.session_state.session_ended = False
+
+    # ---------------- AI Assistant
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
         q = st.text_input("Ask a question")
@@ -266,9 +257,9 @@ def matchmaking_page():
 
     st.divider()
 
-    # -----------------------------------------------------
+    # =====================================================
     # MATCHMAKING
-    # -----------------------------------------------------
+    # =====================================================
     if not st.session_state.current_match_id:
 
         cursor.execute("""
@@ -300,7 +291,7 @@ def matchmaking_page():
                 st.session_state.proposed_match = m
                 st.session_state.proposed_score = s
 
-        if st.session_state.get("proposed_match"):
+        if st.session_state.proposed_match:
             m = st.session_state.proposed_match
             st.markdown("## 🔍 Suggested Match")
             st.write(f"**Name:** {m['name']}")
@@ -320,27 +311,22 @@ def matchmaking_page():
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
                 st.rerun()
-
         return
 
-    # -----------------------------------------------------
+    # =====================================================
     # LIVE SESSION
-    # -----------------------------------------------------
+    # =====================================================
     match_id = st.session_state.current_match_id
 
-    if not st.session_state.celebrated:
-        st.success("🎉 You're matched! Live session started.")
-        st.balloons()
-        st.session_state.celebrated = True
-
     elapsed = int(time.time() - st.session_state.session_start)
-    st.caption(f"⏱ Session Time: {elapsed//60}m {elapsed%60}s")
+    st.success("🎉 Live session in progress")
+    st.caption(f"⏱ {elapsed//60}m {elapsed%60}s")
 
     st.markdown("### 💬 Live Chat")
     for s, m in load_msgs(match_id):
         st.markdown(f"**{s}:** {m}")
 
-    with st.form("chat_form"):
+    with st.form("chat"):
         msg = st.text_input("Message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, st.session_state.user_name, msg)
@@ -359,18 +345,17 @@ def matchmaking_page():
         with open(p, "rb") as file:
             st.download_button(n, file, use_container_width=True)
 
-    if not st.session_state.session_ended:
-        if st.button("🔴 End Session", use_container_width=True):
-            cursor.execute("""
-                UPDATE profiles
-                SET status='waiting', match_id=NULL
-                WHERE match_id=?
-            """, (match_id,))
-            conn.commit()
-            st.session_state.session_ended = True
+    st.divider()
 
-    if st.session_state.session_ended and not st.session_state.rating_done:
+    if st.button("🔴 End Session", use_container_width=True):
+        cursor.execute("""
+            UPDATE profiles
+            SET status='waiting', match_id=NULL
+            WHERE match_id=?
+        """, (match_id,))
+        conn.commit()
+        st.session_state.session_ended = True
+
+    if st.session_state.session_ended:
         show_rating_ui(match_id)
-
-    if st.session_state.rating_done:
         render_practice_quiz(match_id)
