@@ -7,15 +7,15 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads/sessions"
 
 # =========================================================
-# SAFETY: ENSURE RATINGS TABLE EXISTS
+# ENSURE RATINGS TABLE EXISTS
 # =========================================================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS ratings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT,
-    rater_id INTEGER,
-    rating INTEGER,
-    created_at INTEGER
+    match_id TEXT NOT NULL,
+    rater_id INTEGER NOT NULL,
+    rating INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
 )
 """)
 conn.commit()
@@ -26,19 +26,6 @@ conn.commit()
 def now():
     return int(time.time())
 
-def online_status(last_seen):
-    if not last_seen:
-        return "🔴 Not joined yet"
-    diff = now() - last_seen
-    if diff < 60:
-        return "🟢 Online"
-    if diff < 300:
-        return "🟡 Recently active"
-    return "🔴 Offline"
-
-# =========================================================
-# PRESENCE
-# =========================================================
 def update_last_seen():
     cursor.execute(
         "UPDATE profiles SET last_seen=? WHERE user_id=?",
@@ -88,12 +75,16 @@ def load_files(mid):
 # END SESSION
 # =========================================================
 def end_session(match_id):
+    st.session_state.last_session_id = match_id
+
     cursor.execute("""
         UPDATE profiles
         SET status='waiting', match_id=NULL
         WHERE match_id=?
     """, (match_id,))
     conn.commit()
+
+    st.session_state.current_match_id = None
     st.session_state.session_ended = True
 
 # =========================================================
@@ -103,14 +94,13 @@ def generate_quiz_from_chat(match_id):
     msgs = load_msgs(match_id)
     discussion = "\n".join([f"{s}: {m}" for s, m in msgs])
 
-    prompt = f"""
+    raw = ask_ai(f"""
 Create EXACTLY 3 MCQs from this discussion.
-If short, make simple questions.
+If discussion is short, create simple questions.
 
 Discussion:
 {discussion}
-"""
-    raw = ask_ai(prompt)
+""")
 
     qs = []
     for b in raw.split("Q")[1:]:
@@ -129,36 +119,32 @@ Discussion:
 def render_practice_quiz(match_id):
     st.subheader("🧠 Practice Quiz")
 
-    if "quiz" not in st.session_state:
-        st.session_state.quiz = generate_quiz_from_chat(match_id)
-        st.session_state.answers = {}
+    quiz = generate_quiz_from_chat(match_id)
+    answers = {}
 
-    for i, q in enumerate(st.session_state.quiz):
+    for i, q in enumerate(quiz):
         st.markdown(f"**Q{i+1}. {q['question']}**")
-        st.session_state.answers[i] = st.radio(
+        answers[i] = st.radio(
             "Choose",
             list(q["options"].keys()),
             format_func=lambda x: f"{x}) {q['options'][x]}",
-            key=f"q{i}"
+            key=f"quiz_{i}"
         )
 
     if st.button("Submit Quiz"):
-        score = sum(
-            1 for i, q in enumerate(st.session_state.quiz)
-            if st.session_state.answers.get(i) == q["answer"]
-        )
+        score = sum(1 for i, q in enumerate(quiz) if answers.get(i) == q["answer"])
         st.metric("Score", f"{score}/3")
         if score == 3:
             st.balloons()
 
 # =========================================================
-# SESSION SUMMARY (NEW)
+# SESSION SUMMARY
 # =========================================================
 def render_session_summary(match_id):
     msgs = load_msgs(match_id)
     discussion = "\n".join([f"{s}: {m}" for s, m in msgs])
 
-    prompt = f"""
+    summary = ask_ai(f"""
 Summarize this study session:
 - Topics discussed
 - What was learned
@@ -166,8 +152,8 @@ Summarize this study session:
 
 Discussion:
 {discussion}
-"""
-    summary = ask_ai(prompt)
+""")
+
     st.subheader("📝 Session Summary")
     st.write(summary)
 
@@ -179,20 +165,8 @@ def matchmaking_page():
 
     st.session_state.setdefault("current_match_id", None)
     st.session_state.setdefault("session_ended", False)
-    st.session_state.setdefault("just_matched", False)
-
-    if st.session_state.just_matched:
-        st.balloons()
-        st.session_state.just_matched = False
-
-    # ================= AI CHATBOT =================
-    st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai"):
-        q = st.text_input("Ask AI")
-        if st.form_submit_button("Ask") and q:
-            st.success(ask_ai(q))
-
-    st.divider()
+    st.session_state.setdefault("last_session_id", None)
+    st.session_state.setdefault("selected_rating", 0)
 
     # ================= LIVE SESSION =================
     if st.session_state.current_match_id and not st.session_state.session_ended:
@@ -224,32 +198,30 @@ def matchmaking_page():
 
     # ================= POST SESSION =================
     if st.session_state.session_ended:
+        sid = st.session_state.last_session_id
+
         st.subheader("⭐ Rate your partner")
 
-        stars = {
-            "⭐": 1,
-            "⭐⭐": 2,
-            "⭐⭐⭐": 3,
-            "⭐⭐⭐⭐": 4,
-            "⭐⭐⭐⭐⭐": 5
-        }
+        cols = st.columns(5)
+        for i in range(5):
+            if cols[i].button("⭐" if i < st.session_state.selected_rating else "☆", key=f"star_{i}"):
+                st.session_state.selected_rating = i + 1
 
-        choice = st.radio("Your rating", list(stars.keys()), horizontal=True)
+        if st.session_state.selected_rating > 0:
+            st.info(f"You selected {st.session_state.selected_rating} star(s)")
 
-        if st.button("Submit Rating"):
+        if st.button("Submit Rating") and st.session_state.selected_rating > 0:
             cursor.execute("""
                 INSERT INTO ratings (match_id, rater_id, rating, created_at)
                 VALUES (?,?,?,?)
             """, (
-                st.session_state.current_match_id,
+                sid,
                 st.session_state.user_id,
-                stars[choice],
+                st.session_state.selected_rating,
                 now()
             ))
             conn.commit()
             st.success("⭐ Rating submitted")
 
-            render_session_summary(st.session_state.current_match_id)
-
-            if st.button("Practice on this topic"):
-                render_practice_quiz(st.session_state.current_match_id)
+            render_session_summary(sid)
+            render_practice_quiz(sid)
