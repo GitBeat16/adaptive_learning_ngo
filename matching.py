@@ -58,14 +58,17 @@ def find_best(current, users):
     return (best, best_s) if best else (None, 0)
 
 # =========================================================
-# PRESENCE / HEARTBEAT
+# PRESENCE
 # =========================================================
 def update_last_seen():
-    cursor.execute(
-        "UPDATE profiles SET last_seen=? WHERE user_id=?",
-        (int(time.time()), st.session_state.user_id)
-    )
-    conn.commit()
+    try:
+        cursor.execute(
+            "UPDATE profiles SET last_seen=? WHERE user_id=?",
+            (int(time.time()), st.session_state.user_id)
+        )
+        conn.commit()
+    except:
+        pass
 
 # =========================================================
 # CHAT + FILE HELPERS
@@ -73,15 +76,13 @@ def update_last_seen():
 def load_msgs(mid):
     cursor.execute(
         "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (mid,)
-    )
+        (mid,))
     return cursor.fetchall()
 
 def send_msg(mid, sender, message):
     cursor.execute(
         "INSERT INTO messages (match_id, sender, message) VALUES (?,?,?)",
-        (mid, sender, message)
-    )
+        (mid, sender, message))
     conn.commit()
     update_last_seen()
 
@@ -166,7 +167,7 @@ Discussion:
 # PRACTICE QUIZ UI
 # =========================================================
 def render_practice_quiz(match_id):
-    st.markdown("## 🧠 Practice Quiz (AI Generated)")
+    st.markdown("## 🧠 Practice Quiz (AI Generated from Chat)")
 
     if "quiz_questions" not in st.session_state:
         st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
@@ -205,43 +206,8 @@ def render_practice_quiz(match_id):
             st.error("All answers incorrect")
             st.snow()
 
-# =========================================================
-# SESSION SUMMARY
-# =========================================================
-def show_session_summary(match_id):
-    duration = int(st.session_state.session_end - st.session_state.session_start)
-    st.markdown("## 📊 Session Summary")
-    c1, c2 = st.columns(2)
-    c1.metric("⏱ Duration", f"{duration//60} min")
-    c2.metric("💬 Messages", len(load_msgs(match_id)))
-
-# =========================================================
-# RATING
-# =========================================================
-def show_rating_ui(match_id):
-    st.subheader("⭐ Rate Your Session")
-
-    if "rating" not in st.session_state:
-        st.session_state.rating = 0
-
-    cols = st.columns(5)
-    for i in range(5):
-        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
-            st.session_state.rating = i + 1
-
-    if st.button("Submit Rating", use_container_width=True):
-        cursor.execute("""
-            INSERT INTO session_ratings
-            (match_id, rater_id, rater_name, rating)
-            VALUES (?,?,?,?)
-        """, (
-            match_id,
-            st.session_state.user_id,
-            st.session_state.user_name,
-            st.session_state.rating
-        ))
-        conn.commit()
-        reset_to_matchmaking()
+        if st.button("Back to Matchmaking"):
+            reset_to_matchmaking()
 
 # =========================================================
 # RESET
@@ -252,7 +218,7 @@ def reset_to_matchmaking():
         "session_start", "session_end", "session_ended",
         "quiz_questions", "quiz_answers", "quiz_submitted",
         "rating", "proposed_match", "proposed_score",
-        "partner_joined_notified", "match_celebrated"
+        "show_practice"
     ]:
         st.session_state.pop(k, None)
     st.rerun()
@@ -266,137 +232,73 @@ def matchmaking_page():
 
     for k, v in {
         "current_match_id": None,
-        "partner": None,
-        "partner_score": None,
-        "proposed_match": None,
-        "proposed_score": None,
         "session_ended": False,
-        "partner_joined_notified": False,
-        "match_celebrated": False
+        "show_practice": False
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # ---------------- DB SYNC
+    # -----------------------------------------------------
+    # DB SYNC
     cursor.execute("SELECT match_id FROM profiles WHERE user_id=?", (st.session_state.user_id,))
     db_match = cursor.fetchone()
 
     if db_match and db_match[0]:
-        if st.session_state.current_match_id != db_match[0]:
-            st.session_state.current_match_id = db_match[0]
+        st.session_state.current_match_id = db_match[0]
+        if "session_start" not in st.session_state:
             st.session_state.session_start = time.time()
-            st.session_state.session_ended = False
-            st.session_state.match_celebrated = False
-            st.session_state.partner_joined_notified = False
 
-    # ---------------- AI ASSISTANT
-    st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai_form"):
-        q = st.text_input("Ask a question")
-        if st.form_submit_button("Ask") and q:
-            st.success(ask_ai(q))
+    # -----------------------------------------------------
+    # LIVE SESSION
+    if st.session_state.current_match_id and not st.session_state.session_ended:
+        match_id = st.session_state.current_match_id
 
-    st.divider()
+        st.success("🎉 Live session in progress")
+        elapsed = int(time.time() - st.session_state.session_start)
+        st.caption(f"⏱ {elapsed//60}m {elapsed%60}s")
 
-    # =====================================================
-    # MATCHMAKING
-    # =====================================================
-    if not st.session_state.current_match_id:
-        cursor.execute("""
-            SELECT role, grade, time, strong_subjects, weak_subjects, teaches
-            FROM profiles WHERE user_id=?
-        """, (st.session_state.user_id,))
-        row = cursor.fetchone()
+        st.markdown("### 💬 Live Chat")
+        for s, m in load_msgs(match_id):
+            st.markdown(f"**{s}:** {m}")
 
-        if not row:
-            st.warning("Complete your profile first.")
-            return
-
-        role, grade, time_slot, strong, weak, teaches = row
-        user = {
-            "user_id": st.session_state.user_id,
-            "name": st.session_state.user_name,
-            "role": role,
-            "grade": grade,
-            "time": time_slot,
-            "strong": (teaches or strong or "").split(","),
-            "weak": (weak or "").split(",")
-        }
-
-        if st.button("Find Best Match", use_container_width=True):
-            m, s = find_best(user, load_profiles())
-            if not m:
-                st.info("No suitable match right now.")
-            else:
-                st.session_state.proposed_match = m
-                st.session_state.proposed_score = s
-
-        if st.session_state.proposed_match:
-            m = st.session_state.proposed_match
-            st.markdown("## 🔍 Suggested Match")
-            st.write(f"**Name:** {m['name']}")
-            st.write(f"**Role:** {m['role']}")
-            st.write(f"**Grade:** {m['grade']}")
-            st.write(f"**Time:** {m['time']}")
-            st.write(f"**Strong:** {', '.join(m['strong'])}")
-            st.write(f"**Weak:** {', '.join(m['weak'])}")
-            st.success(f"Compatibility Score: {st.session_state.proposed_score}")
-
-            if st.button("Confirm Match", use_container_width=True):
-                session_id = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{int(time.time())}"
-                cursor.execute("""
-                    UPDATE profiles
-                    SET status='matched', match_id=?
-                    WHERE user_id IN (?,?)
-                """, (session_id, user["user_id"], m["user_id"]))
-                conn.commit()
+        with st.form("chat"):
+            msg = st.text_input("Message")
+            if st.form_submit_button("Send") and msg:
+                send_msg(match_id, st.session_state.user_name, msg)
                 st.rerun()
+
+        st.divider()
+
+        st.markdown("### 📂 Shared Files")
+        with st.form("file_form"):
+            f = st.file_uploader("Upload file")
+            if st.form_submit_button("Upload") and f:
+                save_file(match_id, st.session_state.user_name, f)
+                st.rerun()
+
+        for u, n, p in load_files(match_id):
+            with open(p, "rb") as file:
+                st.download_button(n, file, use_container_width=True)
+
+        if st.button("🔴 End Session", use_container_width=True):
+            end_session(match_id)
+
         return
 
-    # =====================================================
-    # LIVE SESSION
-    # =====================================================
-    match_id = st.session_state.current_match_id
-
-    if not st.session_state.match_celebrated:
-        st.success("🎉 Match confirmed! Live session started.")
-        st.balloons()
-        st.session_state.match_celebrated = True
-    else:
-        st.success("Live session in progress")
-
-    elapsed = int(time.time() - st.session_state.session_start)
-    st.caption(f"⏱ {elapsed//60}m {elapsed%60}s")
-
-    st.markdown("### 💬 Live Chat")
-    for s, m in load_msgs(match_id):
-        st.markdown(f"**{s}:** {m}")
-
-    with st.form("chat"):
-        msg = st.text_input("Message")
-        if st.form_submit_button("Send") and msg:
-            send_msg(match_id, st.session_state.user_name, msg)
-            st.rerun()
-
-    st.divider()
-
-    st.markdown("### 📂 Shared Files")
-    with st.form("file_form"):
-        f = st.file_uploader("Upload file")
-        if st.form_submit_button("Upload") and f:
-            save_file(match_id, st.session_state.user_name, f)
-            st.rerun()
-
-    for u, n, p in load_files(match_id):
-        with open(p, "rb") as file:
-            st.download_button(n, file, use_container_width=True)
-
-    st.divider()
-
-    if st.button("🔴 End Session", use_container_width=True):
-        end_session(match_id)
-
+    # -----------------------------------------------------
+    # POST SESSION OPTIONS
     if st.session_state.session_ended:
-        show_session_summary(match_id)
-        show_rating_ui(match_id)
-        render_practice_quiz(match_id)
+        st.markdown("## ✅ Session Completed")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🧠 Practice on this topic"):
+                st.session_state.show_practice = True
+
+        with col2:
+            if st.button("🔁 Skip → Matchmaking"):
+                reset_to_matchmaking()
+
+        if st.session_state.show_practice:
+            render_practice_quiz(st.session_state.current_match_id)
