@@ -85,27 +85,6 @@ def send_msg(mid, sender, message):
     conn.commit()
     update_last_seen()
 
-def save_file(mid, uploader, file):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
-    with open(path, "wb") as f:
-        f.write(file.getbuffer())
-
-    cursor.execute("""
-        INSERT INTO session_files (match_id, uploader, filename, filepath)
-        VALUES (?,?,?,?)
-    """, (mid, uploader, file.name, path))
-    conn.commit()
-    update_last_seen()
-
-def load_files(mid):
-    cursor.execute("""
-        SELECT uploader, filename, filepath
-        FROM session_files
-        WHERE match_id=?
-    """, (mid,))
-    return cursor.fetchall()
-
 # =========================================================
 # END SESSION
 # =========================================================
@@ -185,8 +164,6 @@ def render_practice_quiz(match_id):
             if st.session_state.quiz_answers.get(i) == q["answer"]
         )
         st.metric("Score", f"{score}/3")
-        if score == 3:
-            st.balloons()
 
 # =========================================================
 # PAGE
@@ -195,9 +172,15 @@ def matchmaking_page():
 
     update_last_seen()
 
+    # ---------- INIT STATE ----------
     st.session_state.setdefault("current_match_id", None)
     st.session_state.setdefault("session_ended", False)
-    st.session_state.setdefault("celebrate_match", False)
+    st.session_state.setdefault("just_matched", False)
+
+    # 🎉 BALLOONS — GUARANTEED
+    if st.session_state.just_matched:
+        st.balloons()
+        st.session_state.just_matched = False
 
     # ================= 🤖 AI CHATBOT =================
     st.markdown("### 🤖 AI Study Assistant")
@@ -210,8 +193,47 @@ def matchmaking_page():
 
     # ================= MATCHMAKING =================
     if not st.session_state.current_match_id and not st.session_state.session_ended:
+
+        cursor.execute("""
+            SELECT role, grade, time, strong_subjects, weak_subjects, teaches
+            FROM profiles WHERE user_id=?
+        """, (st.session_state.user_id,))
+        role, grade, time_slot, strong, weak, teaches = cursor.fetchone()
+
+        user = {
+            "user_id": st.session_state.user_id,
+            "name": st.session_state.user_name,
+            "role": role,
+            "grade": grade,
+            "time": time_slot,
+            "strong": (teaches or strong or "").split(","),
+            "weak": (weak or "").split(",")
+        }
+
         if st.button("Find Best Match", use_container_width=True):
-            pass
+            m, s = find_best(user, load_profiles())
+            if m:
+                st.session_state.proposed_match = m
+                st.session_state.proposed_score = s
+
+        if st.session_state.get("proposed_match"):
+            m = st.session_state.proposed_match
+            st.success(f"Matched with {m['name']} (Score: {st.session_state.proposed_score})")
+
+            if st.button("Confirm Match", use_container_width=True):
+                session_id = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{int(time.time())}"
+
+                cursor.execute("""
+                    UPDATE profiles
+                    SET status='matched', match_id=?
+                    WHERE user_id IN (?,?)
+                """, (session_id, user["user_id"], m["user_id"]))
+                conn.commit()
+
+                st.session_state.current_match_id = session_id
+                st.session_state.just_matched = True
+                st.rerun()
+
         return
 
     # ================= LIVE SESSION =================
