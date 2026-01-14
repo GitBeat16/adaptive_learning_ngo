@@ -1,298 +1,192 @@
 import streamlit as st
-import os
-from database import cursor, conn
-from ai_helper import ask_ai
+from datetime import date
 
-UPLOAD_DIR = "uploads/sessions"
-MATCH_THRESHOLD = 30
+# ---- IMPORT PAGES ----
+from materials import materials_page
+from practice import practice_page
+from admin import admin_page
+from auth import auth_page
+from dashboard import dashboard_page
+from matching import matchmaking_page
 
-# =========================================================
-# LOAD USERS
-# =========================================================
-def load_profiles():
-    cursor.execute("""
-        SELECT a.id, a.name, p.role, p.grade, p.time,
-               p.strong_subjects, p.weak_subjects, p.teaches
-        FROM profiles p
-        JOIN auth_users a ON a.id = p.user_id
-        WHERE p.status = 'waiting'
-    """)
-    rows = cursor.fetchall()
-
-    users = []
-    for r in rows:
-        users.append({
-            "user_id": r[0],
-            "name": r[1],
-            "role": r[2],
-            "grade": r[3],
-            "time": r[4],
-            "strong": (r[7] or r[5] or "").split(","),
-            "weak": (r[6] or "").split(",")
-        })
-    return users
+# ---- DATABASE ----
+from database import init_db
 
 # =========================================================
-# MATCH LOGIC
+# INIT DATABASE
 # =========================================================
-def score(u1, u2):
-    s = 0
-    s += len(set(u1["weak"]) & set(u2["strong"])) * 25
-    s += len(set(u2["weak"]) & set(u1["strong"])) * 25
-    if u1["grade"] == u2["grade"]:
-        s += 10
-    if u1["time"] == u2["time"]:
-        s += 10
-    return s
-
-def find_best(current, users):
-    best, best_s = None, 0
-    for u in users:
-        if u["user_id"] == current["user_id"]:
-            continue
-        sc = score(current, u)
-        if sc > best_s:
-            best, best_s = u, sc
-    return (best, best_s) if best_s >= MATCH_THRESHOLD else (None, 0)
+init_db()
 
 # =========================================================
-# CHAT + FILE HELPERS
+# PAGE CONFIG
 # =========================================================
-def load_msgs(mid):
-    cursor.execute(
-        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY id",
-        (mid,)
-    )
-    return cursor.fetchall()
-
-def send_msg(mid, sender, message):
-    cursor.execute(
-        "INSERT INTO messages (match_id, sender, message) VALUES (?, ?, ?)",
-        (mid, sender, message)
-    )
-    conn.commit()
-
-def save_file(mid, uploader, file):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    path = f"{UPLOAD_DIR}/{mid}_{file.name}"
-    with open(path, "wb") as out:
-        out.write(file.getbuffer())
-
-    cursor.execute("""
-        INSERT INTO session_files (match_id, uploader, filename, filepath)
-        VALUES (?, ?, ?, ?)
-    """, (mid, uploader, file.name, path))
-    conn.commit()
-
-def load_files(mid):
-    cursor.execute("""
-        SELECT uploader, filename, filepath
-        FROM session_files
-        WHERE match_id=?
-        ORDER BY uploaded_at
-    """, (mid,))
-    return cursor.fetchall()
+st.set_page_config(
+    page_title="Sahay | Peer Learning Matchmaking",
+    layout="wide"
+)
 
 # =========================================================
-# END SESSION
+# GLOBAL UI STYLES
 # =========================================================
-def end_session(match_id):
-    cursor.execute("""
-        UPDATE profiles
-        SET status='waiting', match_id=NULL
-        WHERE match_id=?
-    """, (match_id,))
-    conn.commit()
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap');
 
-# =========================================================
-# ⭐ RATING UI
-# =========================================================
-def show_rating_ui(match_id):
+html, body, [class*="css"] {
+    font-family: 'Poppins','Inter','Segoe UI',sans-serif;
+}
 
-    st.subheader("⭐ Rate Your Session")
+.stApp {
+    background: linear-gradient(135deg,#f5f7fa,#eef1f5);
+}
 
-    if "rating" not in st.session_state:
-        st.session_state.rating = 0
+section[data-testid="stSidebar"] {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(200,200,200,0.3);
+}
 
-    cols = st.columns(5)
-    for i in range(5):
-        if cols[i].button(
-            "⭐" if i < st.session_state.rating else "☆",
-            key=f"rate_{i}"
-        ):
-            st.session_state.rating = i + 1
+.sidebar-header {
+  padding:1.4rem;
+  border-radius:18px;
+  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  color:white;
+  margin-bottom:1.2rem;
+  text-align:center;
+}
 
-    if st.button("Submit Rating", use_container_width=True):
-        if st.session_state.rating == 0:
-            st.warning("Please select a rating.")
-            return
-
-        cursor.execute("""
-            INSERT INTO session_ratings
-            (match_id, rater_id, rater_name, rating)
-            VALUES (?, ?, ?, ?)
-        """, (
-            match_id,
-            st.session_state.user_id,
-            st.session_state.user_name,
-            st.session_state.rating
-        ))
-        conn.commit()
-
-        st.success("Thank you for your feedback! 🎉")
-        st.session_state.session_rated = True
+.card {
+  background: rgba(255,255,255,.92);
+  border-radius:18px;
+  padding:1.6rem;
+  box-shadow:0 12px 30px rgba(0,0,0,.06);
+}
+</style>
+""", unsafe_allow_html=True)
 
 # =========================================================
-# PAGE
+# SESSION STATE INIT
 # =========================================================
-def matchmaking_page():
+for key, default in {
+    "logged_in": False,
+    "user_id": None,
+    "user_name": "",
+    "page": "Dashboard",
+    "proposed_match": None,
+    "proposed_score": None
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-    # ---------- SESSION STATE ----------
-    for key in [
-        "celebrated",
-        "session_ended",
-        "session_rated",
-        "partner",
-        "partner_score"
+# =========================================================
+# AUTH GATE
+# =========================================================
+if not st.session_state.logged_in:
+    auth_page()
+    st.stop()
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+with st.sidebar:
+
+    st.markdown(f"""
+    <div class="sidebar-header">
+        <div style="font-size:2.4rem;font-weight:700;">
+            Sahay
+        </div>
+        <div style="margin-top:0.45rem;font-size:0.95rem;">
+            {st.session_state.user_name}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Navigation
+    for label in [
+        "Dashboard",
+        "Matchmaking",
+        "Learning Materials",
+        "Practice",
+        "Donations",
+        "Admin"
     ]:
-        if key not in st.session_state:
-            st.session_state[key] = False if key != "partner" else None
-
-    # ---------- PROFILE ----------
-    cursor.execute("""
-        SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
-        FROM profiles WHERE user_id=?
-    """, (st.session_state.user_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        st.warning("Please complete your profile first.")
-        return
-
-    role, grade, time_slot, strong, weak, teaches, match_id = row
-
-    user = {
-        "user_id": st.session_state.user_id,
-        "name": st.session_state.user_name,
-        "role": role,
-        "grade": grade,
-        "time": time_slot,
-        "strong": (teaches or strong or "").split(","),
-        "weak": (weak or "").split(",")
-    }
-
-    # =====================================================
-    # 🤖 AI STUDY ASSISTANT
-    # =====================================================
-    st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai_form"):
-        q = st.text_input("Ask a concept or doubt")
-        if st.form_submit_button("Ask") and q:
-            st.success(ask_ai(q))
-
-    st.divider()
-
-    # =====================================================
-    # MATCHING
-    # =====================================================
-    if not match_id:
-
-        if st.button("Find Best Match", use_container_width=True):
-            m, s = find_best(user, load_profiles())
-            if m:
-                st.session_state.proposed_match = m
-                st.session_state.proposed_score = s
-
-        if st.session_state.get("proposed_match"):
-            m = st.session_state.proposed_match
-
-            st.markdown("### 🔍 Suggested Match")
-            st.write(f"**Name:** {m['name']}")
-            st.write(f"**Role:** {m['role']}")
-            st.write(f"**Grade:** {m['grade']}")
-            st.write(f"**Time Slot:** {m['time']}")
-            st.write(f"**Compatibility Score:** {st.session_state.proposed_score}")
-
-            if st.button("Confirm Match", use_container_width=True):
-                mid = f"{user['user_id']}-{m['user_id']}"
-                cursor.execute("""
-                    UPDATE profiles
-                    SET status='matched', match_id=?
-                    WHERE user_id IN (?,?)
-                """, (mid, user["user_id"], m["user_id"]))
-                conn.commit()
-
-                # 🔁 RESET SESSION FLAGS (CRITICAL FIX)
-                st.session_state.partner = m
-                st.session_state.partner_score = st.session_state.proposed_score
-                st.session_state.celebrated = False
-                st.session_state.session_ended = False
-                st.session_state.session_rated = False
-                st.session_state.rating = 0
-
-                st.rerun()
-
-        return
-
-    # =====================================================
-    # 🎈 LIVE SESSION
-    # =====================================================
-    if not st.session_state.celebrated:
-        st.success("🎉 You're matched! Welcome to your live session.")
-        st.balloons()
-        st.session_state.celebrated = True
-
-    partner = st.session_state.partner
-    if partner:
-        st.markdown("### 🤝 Your Learning Partner")
-        st.write(f"**Name:** {partner['name']}")
-        st.write(f"**Role:** {partner['role']}")
-        st.write(f"**Grade:** {partner['grade']}")
-        st.write(f"**Time Slot:** {partner['time']}")
-        st.write(f"**Compatibility Score:** {st.session_state.partner_score}")
-        st.write(f"**Strong Subjects:** {', '.join(partner['strong'])}")
-        st.write(f"**Weak Subjects:** {', '.join(partner['weak'])}")
-
-    # 🔴 END SESSION — ALWAYS VISIBLE
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if not st.session_state.session_ended:
-            if st.button("🔴 End Session", use_container_width=True):
-                end_session(match_id)
-                st.session_state.session_ended = True
-
-    st.divider()
-
-    # =====================================================
-    # CHAT
-    # =====================================================
-    st.markdown("### 💬 Live Learning Room")
-    for s, m in load_msgs(match_id):
-        st.markdown(f"**{s}:** {m}")
-
-    with st.form("chat_form"):
-        msg = st.text_input("Type your message")
-        if st.form_submit_button("Send") and msg:
-            send_msg(match_id, user["name"], msg)
+        if st.button(label, use_container_width=True):
+            st.session_state.page = label
             st.rerun()
 
-    # =====================================================
-    # FILE SHARING
-    # =====================================================
     st.divider()
-    st.markdown("### 📂 Shared Resources")
-    with st.form("file_form"):
-        f = st.file_uploader("Upload file")
-        if st.form_submit_button("Upload") and f:
-            save_file(match_id, user["name"], f)
-            st.rerun()
 
-    for u, n, p in load_files(match_id):
-        with open(p, "rb") as file:
-            st.download_button(n, file, use_container_width=True)
+    if st.button("Logout", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
-    # =====================================================
-    # ⭐ RATING (AFTER END SESSION)
-    # =====================================================
-    if st.session_state.session_ended and not st.session_state.session_rated:
-        show_rating_ui(match_id)
+# =========================================================
+# ROUTING
+# =========================================================
+page = st.session_state.page
+
+if page == "Dashboard":
+    dashboard_page()
+
+elif page == "Matchmaking":
+    matchmaking_page()
+
+elif page == "Learning Materials":
+    materials_page()
+
+elif page == "Practice":
+    practice_page()
+
+elif page == "Donations":
+    st.markdown("""
+    <div class="card">
+        <h2>🤝 Support Education & Nutrition</h2>
+        <p>
+            Your contribution can help educate children, provide nutritious meals,
+            and empower communities across India.
+            Choose a trusted NGO below to make a difference.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.write("")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div class="card">
+            <h4>Pratham</h4>
+            <p>Improving learning outcomes for children across India.</p>
+            <a href="https://pratham.org/donation/" target="_blank">
+                <button style="width:100%">Donate</button>
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("""
+        <div class="card">
+            <h4>Akshaya Patra</h4>
+            <p>Providing mid-day meals to millions of school children.</p>
+            <a href="https://www.akshayapatra.org/onlinedonations" target="_blank">
+                <button style="width:100%">Donate</button>
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div class="card">
+            <h4>Teach For India</h4>
+            <p>Building a movement to eliminate educational inequity.</p>
+            <a href="https://www.teachforindia.org/donate" target="_blank">
+                <button style="width:100%">Donate</button>
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+
+elif page == "Admin":
+    key = st.text_input("Admin Access Key", type="password")
+    if key == "ngo-admin-123":
+        admin_page()
