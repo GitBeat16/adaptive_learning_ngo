@@ -3,8 +3,6 @@ import time
 from database import cursor, conn
 from ai_helper import ask_ai
 
-UPLOAD_DIR = "uploads/sessions"
-
 # =========================================================
 # HELPERS
 # =========================================================
@@ -17,14 +15,14 @@ def init_state():
         "user_name": "",
         "current_match_id": None,
         "session_ended": False,
-        "last_session_id": None,
-        "selected_rating": 0,
         "just_matched": False,
         "partner_joined": False,
         "chat_log": [],
-        "quiz_data": None,
-        "quiz_answers": {},
+        "proposed_match": None,
+        "proposed_score": None,
         "show_quiz": False,
+        "quiz_raw": "",
+        "quiz_answers": {},
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
@@ -36,6 +34,24 @@ def update_last_seen():
             (now(), st.session_state.user_id)
         )
         conn.commit()
+
+def normalize_match(m):
+    """Always return dict or None"""
+    if not m:
+        return None
+    if isinstance(m, dict):
+        return m
+    if isinstance(m, (tuple, list)) and len(m) >= 5:
+        return {
+            "user_id": m[0],
+            "name": m[1],
+            "role": m[2],
+            "grade": m[3],
+            "time": m[4],
+            "strong": (m[7] if len(m) > 7 else "").split(","),
+            "weak": (m[6] if len(m) > 6 else "").split(","),
+        }
+    return None
 
 # =========================================================
 # MATCHING LOGIC
@@ -86,24 +102,22 @@ def find_best_match(current):
 # =========================================================
 # AI FEATURES
 # =========================================================
-def generate_session_summary():
-    chat = "\n".join(st.session_state.chat_log[-20:])
-    prompt = f"Summarize this study session in 5 bullet points:\n{chat}"
+def generate_summary(chat):
+    prompt = "Summarize this study session in 5 bullet points:\n" + "\n".join(chat[-20:])
     return ask_ai(prompt)
 
-def generate_quiz():
-    chat = "\n".join(st.session_state.chat_log[-30:])
+def generate_quiz(chat):
     prompt = f"""
-    Create a 4-question MCQ quiz based on this discussion.
-    Format EXACTLY like:
-    Q1: question
-    A) option
-    B) option
-    C) option
-    D) option
-    Answer: B
-    """
-    return ask_ai(prompt)
+Create 4 MCQ questions from this discussion.
+FORMAT STRICTLY AS:
+Q1: question
+A) option
+B) option
+C) option
+D) option
+Answer: A
+"""
+    return ask_ai(prompt + "\n" + "\n".join(chat[-30:]))
 
 # =========================================================
 # MAIN PAGE
@@ -112,14 +126,16 @@ def matchmaking_page():
     init_state()
     update_last_seen()
 
-    # 🎈 MATCH CONFIRMATION BALLOONS
+    st.title("🤝 Study Matchmaking")
+
+    # 🎈 AFTER MATCH CONFIRMATION
     if st.session_state.just_matched:
         st.balloons()
         st.session_state.just_matched = False
 
-    st.title("🤝 Study Matchmaking")
-
-    # ================= ACTIVE SESSION =================
+    # =====================================================
+    # ACTIVE SESSION
+    # =====================================================
     if st.session_state.current_match_id and not st.session_state.session_ended:
         st.success("✅ Session Active")
 
@@ -128,87 +144,111 @@ def matchmaking_page():
             st.toast("🎉 Your study partner has joined!", icon="🔔")
             st.session_state.partner_joined = True
 
-        st.markdown("### 💬 Study Chat")
-        msg = st.text_input("Type message")
+        st.subheader("💬 Study Chat")
+        msg = st.text_input("Type a message")
         if st.button("Send") and msg:
             st.session_state.chat_log.append(msg)
+            cursor.execute(
+                "INSERT INTO messages(match_id, sender, message) VALUES (?,?,?)",
+                (st.session_state.current_match_id, st.session_state.user_name, msg)
+            )
+            conn.commit()
             st.success("Message sent")
 
         st.divider()
 
-        # 🔴 END SESSION
+        # 🔴 END SESSION BUTTON
         if st.button("🛑 End Session", use_container_width=True):
             st.session_state.session_ended = True
-            st.session_state.last_session_id = st.session_state.current_match_id
-            st.session_state.current_match_id = None
+            st.session_state.show_quiz = False
             st.rerun()
-
         return
 
-    # ================= POST SESSION =================
+    # =====================================================
+    # POST SESSION
+    # =====================================================
     if st.session_state.session_ended:
         st.subheader("📊 Session Summary")
         with st.spinner("Generating summary..."):
-            st.info(generate_session_summary())
+            summary = generate_summary(st.session_state.chat_log)
+            st.info(summary)
+
+        cursor.execute(
+            "INSERT OR IGNORE INTO sessions(match_id, started_at, ended_at, summary) VALUES (?,?,?,?)",
+            (st.session_state.current_match_id, now(), now(), summary)
+        )
+        conn.commit()
 
         st.subheader("⭐ Rate Your Partner")
         rating = st.slider("Rating", 1, 5, 3)
         if st.button("Submit Rating"):
-            st.success("Thanks for your feedback! ⭐")
+            cursor.execute(
+                "INSERT INTO session_ratings(match_id, rater_id, rater_name, rating) VALUES (?,?,?,?)",
+                (st.session_state.current_match_id, st.session_state.user_id,
+                 st.session_state.user_name, rating)
+            )
+            conn.commit()
+            st.success("Thanks for rating! ⭐")
 
         st.divider()
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("📝 Take AI Quiz"):
-                st.session_state.quiz_data = generate_quiz()
+            if st.button("🧠 Take AI Quiz"):
+                st.session_state.quiz_raw = generate_quiz(st.session_state.chat_log)
                 st.session_state.show_quiz = True
 
         with col2:
             if st.button("🔁 Back to Matchmaking"):
                 st.session_state.session_ended = False
-                st.session_state.chat_log = []
+                st.session_state.chat_log.clear()
+                st.session_state.current_match_id = None
                 st.rerun()
 
-        # ================= QUIZ =================
-        if st.session_state.show_quiz and st.session_state.quiz_data:
-            st.subheader("🧠 AI Quiz")
-            raw = st.session_state.quiz_data.split("\n")
-            correct = 0
-            q_no = 0
+        # =================================================
+        # QUIZ
+        # =================================================
+        if st.session_state.show_quiz:
+            st.subheader("📝 AI Quiz")
+
+            lines = st.session_state.quiz_raw.splitlines()
             correct_answers = {}
+            q_no = 0
 
-            for line in raw:
+            for line in lines:
                 if line.startswith("Answer"):
-                    correct_answers[q_no] = line.split(":")[-1].strip()
+                    correct_answers[q_no] = line.split(":")[1].strip()
 
             q_no = 0
-            for i, line in enumerate(raw):
+            for i, line in enumerate(lines):
                 if line.startswith("Q"):
                     q_no += 1
                     st.markdown(f"**{line}**")
-                    opts = raw[i+1:i+5]
+                    opts = ["A", "B", "C", "D"]
                     choice = st.radio(
-                        f"Q{q_no}",
-                        ["A", "B", "C", "D"],
-                        key=f"q{q_no}"
+                        f"Choose answer for Q{q_no}",
+                        opts,
+                        key=f"quiz_{q_no}"
                     )
                     st.session_state.quiz_answers[q_no] = choice
 
             if st.button("Submit Quiz"):
-                for q, ans in st.session_state.quiz_answers.items():
-                    if ans == correct_answers.get(q):
-                        correct += 1
+                score = sum(
+                    1 for q, a in st.session_state.quiz_answers.items()
+                    if a == correct_answers.get(q)
+                )
 
-                if correct == len(correct_answers):
+                if score == len(correct_answers):
                     st.balloons()
                     st.success("🎉 All answers correct!")
                 else:
-                    st.error("❌ Some answers were incorrect. Try again!")
+                    st.error("❌ Some answers were wrong. Try again!")
 
         return
 
-    # ================= MATCHMAKING =================
+    # =====================================================
+    # MATCHMAKING
+    # =====================================================
     st.subheader("🔍 Find a Study Partner")
 
     cursor.execute("""
@@ -235,14 +275,18 @@ def matchmaking_page():
     if st.button("🔍 Find Best Match", use_container_width=True):
         m, s = find_best_match(user)
         if not m:
-            st.info("No suitable match right now.")
+            st.info("No suitable match found.")
             return
-
         st.session_state.proposed_match = m
         st.session_state.proposed_score = s
 
-    if "proposed_match" in st.session_state:
-        m = st.session_state.proposed_match
+    if st.session_state.proposed_match:
+        m = normalize_match(st.session_state.proposed_match)
+        if not m:
+            st.warning("Invalid match data. Retry.")
+            st.session_state.proposed_match = None
+            return
+
         st.info(
             f"""
             **Name:** {m['name']}  
@@ -253,7 +297,8 @@ def matchmaking_page():
         )
 
         if st.button("✅ Confirm Match", use_container_width=True):
-            sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
+            sid = f"{min(int(user['user_id']), int(m['user_id']))}-{max(int(user['user_id']), int(m['user_id']))}-{now()}"
+
             cursor.execute("""
                 UPDATE profiles SET status='matched', match_id=?
                 WHERE user_id IN (?,?)
@@ -262,4 +307,5 @@ def matchmaking_page():
 
             st.session_state.current_match_id = sid
             st.session_state.just_matched = True
+            st.session_state.proposed_match = None
             st.rerun()
