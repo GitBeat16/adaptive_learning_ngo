@@ -115,23 +115,22 @@ def show_rating_ui(match_id):
     """, (match_id, st.session_state.user_id))
 
     if cursor.fetchone():
-        st.info("You have already rated this session.")
+        st.info("You already rated this session.")
         return
 
-    st.subheader("⭐ Rate Your Session")
+    st.markdown("### ⭐ Rate Your Session")
 
     if "rating" not in st.session_state:
         st.session_state.rating = 0
 
     cols = st.columns(5)
     for i in range(5):
-        star = "⭐" if i < st.session_state.rating else "☆"
-        if cols[i].button(star, key=f"rate_{i}"):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"star_{i}"):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
         if st.session_state.rating == 0:
-            st.warning("Please select a rating first.")
+            st.warning("Please select a rating.")
             return
 
         cursor.execute("""
@@ -154,39 +153,25 @@ def show_rating_ui(match_id):
 # =========================================================
 def matchmaking_page():
 
-    for k, v in {
-        "session_ended": False,
-        "rating_submitted": False,
-        "celebrated": False
-    }.items():
+    for k in ["celebrated", "session_ended", "rating_submitted"]:
         if k not in st.session_state:
-            st.session_state[k] = v
+            st.session_state[k] = False
 
-    # ---------- HEADER ----------
     st.markdown("""
-    <div style="
-        padding:1.5rem;
-        border-radius:16px;
-        background:linear-gradient(135deg,#4f46e5,#6366f1);
-        color:white;
-        margin-bottom:1.5rem;
-    ">
-        <h2 style="margin:0;">Peer Learning Session</h2>
-        <p style="margin:0;opacity:0.9;">
-            Match, learn, and collaborate in real time
-        </p>
+    <div style="padding:1.5rem;border-radius:16px;
+    background:linear-gradient(135deg,#4f46e5,#6366f1);color:white;">
+        <h2>Peer Learning Session</h2>
+        <p>Match, learn, and collaborate</p>
     </div>
     """, unsafe_allow_html=True)
 
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches, match_id
-        FROM profiles
-        WHERE user_id = ?
+        FROM profiles WHERE user_id=?
     """, (st.session_state.user_id,))
     row = cursor.fetchone()
-
     if not row:
-        st.warning("Please complete your profile first.")
+        st.warning("Complete your profile first.")
         return
 
     role, grade, time_slot, strong, weak, teaches, match_id = row
@@ -201,115 +186,90 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    # =====================================================
-    # 🤖 AI STUDY ASSISTANT
-    # =====================================================
+    # 🤖 AI ASSISTANT
     st.markdown("### 🤖 AI Study Assistant")
-    with st.form("ai_form", clear_on_submit=True):
-        q = st.text_input("Ask a concept, definition, or example")
-        if st.form_submit_button("Get Help") and q:
-            with st.spinner("Thinking..."):
-                st.success(ask_ai(q))
+    with st.form("ai"):
+        q = st.text_input("Ask anything")
+        if st.form_submit_button("Ask") and q:
+            st.success(ask_ai(q))
 
     st.divider()
 
-    # =====================================================
-    # MATCH PREVIEW
-    # =====================================================
+    # MATCHING
     if not match_id:
         if st.button("Find Best Match", use_container_width=True):
             m, s = find_best(user, load_profiles())
             if m:
-                st.session_state.proposed_match = m
-                st.session_state.proposed_score = s
+                st.session_state.match = m
+                st.session_state.score = s
 
-        if st.session_state.get("proposed_match"):
-            m = st.session_state.proposed_match
-
-            st.markdown(f"""
-            <div class="card">
-                <h4>Suggested Match</h4>
-                <p><b>Name:</b> {m['name']}</p>
-                <p><b>Role:</b> {m['role']}</p>
-                <p><b>Grade:</b> {m['grade']}</p>
-                <p><b>Time Slot:</b> {m['time']}</p>
-                <p><b>Compatibility Score:</b> {st.session_state.proposed_score}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
+        if "match" in st.session_state:
+            m = st.session_state.match
+            st.markdown(f"### Suggested Match: **{m['name']}**")
             if st.button("Confirm Match", use_container_width=True):
                 mid = f"{user['user_id']}-{m['user_id']}"
                 cursor.execute("""
-                    UPDATE profiles
-                    SET status='matched', match_id=?
-                    WHERE user_id IN (?, ?)
+                    UPDATE profiles SET status='matched', match_id=?
+                    WHERE user_id IN (?,?)
                 """, (mid, user["user_id"], m["user_id"]))
                 conn.commit()
-
                 st.session_state.celebrated = False
-                st.session_state.proposed_match = None
                 st.rerun()
-
         return
 
-    # =====================================================
-    # 🎉 CONFETTI + 🔊 SOUND (ONCE)
-    # =====================================================
+    # 🎉 CONFETTI + 🔊 SOUND
     if not st.session_state.celebrated:
         st.success("🎉 You're matched! Welcome to your live session.")
+
         st.components.v1.html("""
         <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
         <script>
-          confetti({ particleCount: 180, spread: 100, origin: { y: 0.6 } });
+          confetti({ particleCount: 200, spread: 120, origin: { y: 0.6 }});
         </script>
-        <audio autoplay>
-          <source src="https://actions.google.com/sounds/v1/ui/confirmation.ogg">
-        </audio>
         """, height=0)
+
+        st.audio(
+            "https://actions.google.com/sounds/v1/ui/confirmation.ogg",
+            autoplay=True
+        )
+
         st.session_state.celebrated = True
 
-    # =====================================================
-    # 🔴 END SESSION BUTTON (FIXED VISIBILITY)
-    # =====================================================
-    end_col1, end_col2 = st.columns([4, 1])
-    with end_col2:
-        if st.button("🔴 End Session", use_container_width=True):
-            end_session(match_id)
-            st.session_state.session_ended = True
+    # 🔴 END SESSION BUTTON (CENTERED)
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        if not st.session_state.session_ended:
+            if st.button("End Session", use_container_width=True):
+                end_session(match_id)
+                st.session_state.session_ended = True
 
-    # =====================================================
-    # LIVE SESSION
-    # =====================================================
+    st.divider()
+
+    # LIVE CHAT
     st.markdown("### Live Learning Room")
+    for s, m in load_msgs(match_id):
+        st.markdown(f"**{s}:** {m}")
 
-    for sender, msg in load_msgs(match_id):
-        st.markdown(f"**{sender}:** {msg}")
-
-    with st.form("chat_form", clear_on_submit=True):
-        msg = st.text_input("Type your message")
+    with st.form("chat"):
+        msg = st.text_input("Message")
         if st.form_submit_button("Send") and msg:
             send_msg(match_id, user["name"], msg)
             st.rerun()
 
+    # FILES
     st.divider()
-
     st.markdown("### Shared Resources")
-    with st.form("file_form", clear_on_submit=True):
-        f = st.file_uploader("Upload a document or image")
+    with st.form("files"):
+        f = st.file_uploader("Upload")
         if st.form_submit_button("Upload") and f:
             save_file(match_id, user["name"], f)
             st.rerun()
 
     for u, n, p in load_files(match_id):
         with open(p, "rb") as file:
-            st.download_button(
-                label=f"{n} • uploaded by {u}",
-                data=file,
-                file_name=n,
-                use_container_width=True
-            )
+            st.download_button(n, file, use_container_width=True)
 
-    st.divider()
-
+    # ⭐ RATING AFTER END
     if st.session_state.session_ended and not st.session_state.rating_submitted:
         show_rating_ui(match_id)
