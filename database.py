@@ -102,13 +102,26 @@ def init_db():
     """)
 
     # -------------------------
-    # USER STREAKS (MOVED HERE ✅)
+    # USER STREAKS
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_streaks (
         user_id INTEGER PRIMARY KEY,
         streak INTEGER DEFAULT 0,
         last_active DATE
+    )
+    """)
+
+    # -------------------------
+    # 🔁 REMATCH REQUESTS (NEW ✅)
+    # -------------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS rematch_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user INTEGER,
+        to_user INTEGER,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT DEFAULT (datetime('now'))
     )
     """)
 
