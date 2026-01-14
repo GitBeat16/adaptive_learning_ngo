@@ -117,10 +117,7 @@ def show_rating_ui(match_id):
 
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button(
-            "⭐" if i < st.session_state.rating else "☆",
-            key=f"rate_{i}"
-        ):
+        if cols[i].button("⭐" if i < st.session_state.rating else "☆", key=f"rate_{i}"):
             st.session_state.rating = i + 1
 
     if st.button("Submit Rating", use_container_width=True):
@@ -151,8 +148,8 @@ def render_session_summary(match_id):
     files = load_files(match_id)
     partner = st.session_state.partner
 
-    duration_sec = int(time.time() - st.session_state.session_start_time)
-    mins, secs = divmod(duration_sec, 60)
+    duration = int(time.time() - st.session_state.session_start_time)
+    mins, secs = divmod(duration, 60)
 
     st.markdown("## 🧾 Session Summary")
 
@@ -168,31 +165,30 @@ def render_session_summary(match_id):
     st.divider()
     st.success("Would you like to practice what you learned?")
 
-    c1, c2 = st.columns(2)
-    with c1:
+    col1, col2 = st.columns(2)
+    with col1:
         if st.button("🧠 Practice Now", use_container_width=True):
             st.session_state.show_practice = True
-
-    with c2:
+    with col2:
         if st.button("Skip for Now", use_container_width=True):
             reset_to_matchmaking()
 
 # =========================================================
-# 🧠 AI PRACTICE QUIZ
+# 🧠 AI QUIZ GENERATION
 # =========================================================
 def generate_quiz_from_chat(match_id):
 
     messages = load_msgs(match_id)
     if not messages:
-        return "No discussion found to generate a quiz."
+        return []
 
     chat_text = "\n".join([f"{s}: {m}" for s, m in messages])
 
     prompt = f"""
-    Based on the following learning conversation, generate a short quiz
-    with 3 multiple-choice questions.
+    Based on the following learning conversation, generate exactly
+    3 multiple-choice questions.
 
-    Format exactly like this:
+    Format strictly like:
     Q1. Question
     A) option
     B) option
@@ -204,21 +200,93 @@ def generate_quiz_from_chat(match_id):
     {chat_text}
     """
 
-    return ask_ai(prompt)
+    response = ask_ai(prompt)
 
+    questions = []
+    blocks = response.split("Q")[1:]
 
+    for block in blocks:
+        lines = block.strip().split("\n")
+        question = lines[0][2:].strip()
+        options = {}
+        answer = None
+
+        for l in lines[1:]:
+            if l.startswith(("A)", "B)", "C)", "D)")):
+                options[l[0]] = l[2:].strip()
+            if "Answer:" in l:
+                answer = l.split(":")[-1].strip()
+
+        if options and answer:
+            questions.append({
+                "question": question,
+                "options": options,
+                "answer": answer
+            })
+
+    return questions
+
+# =========================================================
+# 📊 PRACTICE QUIZ + SCORING
+# =========================================================
 def render_practice_quiz(match_id):
 
-    st.markdown("## 🧠 Practice What You Learned")
+    st.markdown("##Practice Quiz")
 
-    if not st.session_state.quiz_generated:
-        st.session_state.quiz_content = generate_quiz_from_chat(match_id)
-        st.session_state.quiz_generated = True
+    if not st.session_state.quiz_questions:
+        st.session_state.quiz_questions = generate_quiz_from_chat(match_id)
+        st.session_state.quiz_answers = {}
+        st.session_state.quiz_submitted = False
 
-    st.markdown(st.session_state.quiz_content)
+    if not st.session_state.quiz_questions:
+        st.info("Not enough discussion to generate a quiz.")
+        if st.button("Back to Matchmaking"):
+            reset_to_matchmaking()
+        return
 
-    if st.button("Finish Practice", use_container_width=True):
-        reset_to_matchmaking()
+    for i, q in enumerate(st.session_state.quiz_questions):
+        st.markdown(f"**Q{i+1}. {q['question']}**")
+        choice = st.radio(
+            "Select an option",
+            options=list(q["options"].keys()),
+            format_func=lambda x: f"{x}) {q['options'][x]}",
+            key=f"quiz_{i}"
+        )
+        st.session_state.quiz_answers[i] = choice
+
+    if not st.session_state.quiz_submitted:
+        if st.button("Submit Quiz", use_container_width=True):
+            st.session_state.quiz_submitted = True
+
+    if st.session_state.quiz_submitted:
+        st.divider()
+        st.markdown("##⚙︎ Quiz Results")
+
+        score = 0
+        for i, q in enumerate(st.session_state.quiz_questions):
+            user_ans = st.session_state.quiz_answers.get(i)
+            if user_ans == q["answer"]:
+                st.success(f"Q{i+1}: Correct ✅")
+                score += 1
+            else:
+                st.error(f"Q{i+1}: Wrong ❌ (Correct: {q['answer']})")
+
+        total = len(st.session_state.quiz_questions)
+        percent = int((score / total) * 100)
+
+        st.metric("Score", f"{score}/{total}")
+        st.metric("Accuracy", f"{percent}%")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("↻ Retry Quiz"):
+                st.session_state.quiz_questions = []
+                st.session_state.quiz_answers = {}
+                st.session_state.quiz_submitted = False
+                st.rerun()
+        with col2:
+            if st.button("⏭ Back to Matchmaking"):
+                reset_to_matchmaking()
 
 # =========================================================
 # 🔁 RESET
@@ -233,14 +301,14 @@ def reset_to_matchmaking():
         "rating",
         "show_summary",
         "show_practice",
-        "quiz_generated",
-        "quiz_content",
+        "quiz_questions",
+        "quiz_answers",
+        "quiz_submitted",
         "proposed_match",
         "proposed_score",
         "session_start_time"
     ]:
         st.session_state.pop(k, None)
-
     st.rerun()
 
 # =========================================================
@@ -256,16 +324,14 @@ def matchmaking_page():
         "current_match_id": None,
         "show_summary": False,
         "show_practice": False,
-        "quiz_generated": False,
-        "quiz_content": "",
+        "quiz_questions": [],
+        "quiz_answers": {},
+        "quiz_submitted": False,
         "session_start_time": None
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # -----------------------------------------------------
-    # PROFILE
-    # -----------------------------------------------------
     cursor.execute("""
         SELECT role, grade, time, strong_subjects, weak_subjects, teaches
         FROM profiles WHERE user_id=?
@@ -288,9 +354,6 @@ def matchmaking_page():
         "weak": (weak or "").split(",")
     }
 
-    # =====================================================
-    # 🤖 AI STUDY ASSISTANT
-    # =====================================================
     st.markdown("### 🤖 AI Study Assistant")
     with st.form("ai_form"):
         q = st.text_input("Ask a concept or doubt")
@@ -299,9 +362,6 @@ def matchmaking_page():
 
     st.divider()
 
-    # =====================================================
-    # MATCHMAKING
-    # =====================================================
     if not st.session_state.current_match_id:
 
         if st.button("Find Best Match", use_container_width=True):
@@ -314,17 +374,12 @@ def matchmaking_page():
             m = st.session_state.proposed_match
             st.markdown("### 🔍 Suggested Match")
             st.write(f"**Name:** {m['name']}")
-            st.write(f"**Role:** {m['role']}")
-            st.write(f"**Grade:** {m['grade']}")
-            st.write(f"**Time Slot:** {m['time']}")
             st.write(f"**Compatibility Score:** {st.session_state.proposed_score}")
 
             if st.button("Confirm Match", use_container_width=True):
                 session_id = f"{user['user_id']}-{m['user_id']}-{int(time.time())}"
-
                 cursor.execute("""
-                    UPDATE profiles
-                    SET status='matched', match_id=?
+                    UPDATE profiles SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
                 """, (session_id, user["user_id"], m["user_id"]))
                 conn.commit()
@@ -336,7 +391,6 @@ def matchmaking_page():
                 st.session_state.celebrated = False
                 st.session_state.session_ended = False
                 st.session_state.rating = 0
-
                 st.rerun()
 
     else:
@@ -354,7 +408,6 @@ def matchmaking_page():
 
         st.divider()
 
-        # 💬 CHAT
         st.markdown("### 💬 Live Learning Room")
         for s, m in load_msgs(match_id):
             st.markdown(f"**{s}:** {m}")
@@ -365,7 +418,6 @@ def matchmaking_page():
                 send_msg(match_id, user["name"], msg)
                 st.rerun()
 
-        # 📂 FILES
         st.divider()
         st.markdown("### 📂 Shared Resources")
         with st.form("file_form"):
@@ -378,7 +430,6 @@ def matchmaking_page():
             with open(p, "rb") as file:
                 st.download_button(n, file, use_container_width=True)
 
-        # ⭐ RATING → SUMMARY → PRACTICE
         if st.session_state.session_ended and not st.session_state.show_summary and not st.session_state.show_practice:
             show_rating_ui(match_id)
 
