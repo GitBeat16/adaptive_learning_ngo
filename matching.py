@@ -66,7 +66,7 @@ def should_poll():
 
 def poll_tick():
     st.session_state.last_poll = now()
-    st.experimental_rerun()
+    st.rerun()
 
 def check_if_matched():
     cursor.execute("""
@@ -78,7 +78,7 @@ def check_if_matched():
         st.session_state.current_match_id = row[0]
         st.session_state.just_matched = True
         st.session_state.session_start_time = now()
-        st.experimental_rerun()
+        st.rerun()
 
 def check_partner_joined(match_id):
     cursor.execute("""
@@ -228,7 +228,7 @@ def matchmaking_page():
             st.session_state.session_ended = True
             st.session_state.current_match_id = None
             st.session_state.session_start_time = None
-            st.experimental_rerun()
+            st.rerun()
         return
 
     # =====================================================
