@@ -22,6 +22,7 @@ def init_state():
         "just_matched": False,
         "partner_joined": False,
         "chat_log": [],
+        "last_msg_ts": 0,          # ✅ REQUIRED FOR LIVE CHAT
         "proposed_match": None,
         "proposed_score": None,
         "show_quiz": False,
@@ -89,6 +90,23 @@ def check_partner_joined(match_id):
     return bool(row and (now() - (row[0] or 0)) <= 10)
 
 # =========================================================
+# LIVE CHAT (DB BACKED)
+# =========================================================
+def fetch_new_messages(match_id):
+    cursor.execute("""
+        SELECT sender, message, created_ts
+        FROM messages
+        WHERE match_id=?
+          AND created_ts > ?
+        ORDER BY created_ts ASC
+    """, (match_id, st.session_state.last_msg_ts))
+    rows = cursor.fetchall()
+
+    for sender, msg, ts in rows:
+        st.session_state.chat_log.append((sender, msg))
+        st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
+
+# =========================================================
 # MATCHING LOGIC
 # =========================================================
 def load_waiting_profiles():
@@ -141,7 +159,7 @@ def find_best_match(current):
 def generate_summary(chat):
     return ask_ai(
         "Summarize this study session in 5 bullet points:\n" +
-        "\n".join(chat[-20:])
+        "\n".join([m for _, m in chat][-20:])
     )
 
 def generate_quiz(chat):
@@ -154,7 +172,7 @@ B) option
 C) option
 D) option
 Answer: A
-""" + "\n" + "\n".join(chat[-30:]))
+""" + "\n" + "\n".join([m for _, m in chat][-30:]))
 
 # =========================================================
 # MAIN PAGE
@@ -176,20 +194,6 @@ def matchmaking_page():
 
     st.title("🤝 Study Matchmaking")
 
-    # 🤖 AI CHATBOT
-    st.markdown("### 🤖 AI Study Assistant")
-    ai_q = st.text_input("Ask AI anything")
-    if st.button("Ask AI") and ai_q:
-        st.session_state.ai_chat.append((ai_q, ask_ai(ai_q)))
-    for q, a in st.session_state.ai_chat[-3:]:
-        st.markdown(f"**You:** {q}")
-        st.markdown(f"**AI:** {a}")
-    st.divider()
-
-    if st.session_state.just_matched:
-        st.balloons()
-        st.session_state.just_matched = False
-
     # =====================================================
     # ACTIVE SESSION
     # =====================================================
@@ -198,84 +202,19 @@ def matchmaking_page():
         remaining = max(0, SESSION_TIMEOUT_SEC - elapsed)
         st.success(f"⏱️ Time left: {remaining//60}m {remaining%60}s")
 
-        if not st.session_state.partner_joined:
-            if check_partner_joined(st.session_state.current_match_id):
-                st.toast("🎉 Partner joined!", icon="🔔")
-                st.session_state.partner_joined = True
+        fetch_new_messages(st.session_state.current_match_id)
 
         st.subheader("💬 Study Chat")
+        for sender, msg in st.session_state.chat_log[-50:]:
+            st.markdown(f"**{sender}:** {msg}")
+
         msg = st.text_input("Message")
         if st.button("Send") and msg:
-            st.session_state.chat_log.append(msg)
             cursor.execute(
                 "INSERT INTO messages(match_id, sender, message) VALUES (?,?,?)",
                 (st.session_state.current_match_id, st.session_state.user_name, msg)
             )
             conn.commit()
-            st.success("Sent")
-
-        if st.button("🛑 End Session", use_container_width=True):
-            cursor.execute("""
-                UPDATE profiles
-                SET status='waiting', match_id=NULL
-                WHERE match_id=?
-            """, (st.session_state.current_match_id,))
-            conn.commit()
-
-            st.session_state.session_ended = True
-            st.session_state.current_match_id = None
-            st.session_state.session_start_time = None
             st.rerun()
+
         return
-
-    # =====================================================
-    # MATCHMAKING VIEW
-    # =====================================================
-    st.subheader("🔍 Finding a study partner…")
-
-    cursor.execute("""
-        SELECT role, grade, time, strong_subjects, weak_subjects, teaches
-        FROM profiles WHERE user_id=?
-    """, (st.session_state.user_id,))
-    row = cursor.fetchone()
-    if not row:
-        st.warning("Complete your profile first.")
-        return
-
-    role, grade, time_slot, strong, weak, teaches = row
-    user = {
-        "user_id": st.session_state.user_id,
-        "name": st.session_state.user_name,
-        "role": role,
-        "grade": grade,
-        "time": time_slot,
-        "strong": (teaches or strong or "").split(","),
-        "weak": (weak or "").split(",")
-    }
-
-    m, s = find_best_match(user)
-    if not m:
-        st.info("Waiting for a compatible partner…")
-        return
-
-    m = normalize_match(m)
-
-    st.info(f"**Match found:** {m['name']} ({s}%)")
-
-    # 🔍 NEW: SHOW PARTNER DETAILS BEFORE CONFIRMATION
-    with st.expander("📋 View partner details"):
-        st.markdown(f"**Name:** {m['name']}")
-        st.markdown(f"**Role:** {m['role']}")
-        st.markdown(f"**Grade:** {m['grade']}")
-        st.markdown(f"**Available Time:** {m['time']}")
-        st.markdown(f"**Strong Subjects:** {', '.join(m['strong']) if m['strong'] else '—'}")
-        st.markdown(f"**Weak Subjects:** {', '.join(m['weak']) if m['weak'] else '—'}")
-
-    if st.button("✅ Confirm Match", use_container_width=True):
-        sid = f"{min(user['user_id'], m['user_id'])}-{max(user['user_id'], m['user_id'])}-{now()}"
-        cursor.execute("""
-            UPDATE profiles
-            SET status='matched', match_id=?
-            WHERE user_id IN (?,?)
-        """, (sid, user["user_id"], m["user_id"]))
-        conn.commit()
