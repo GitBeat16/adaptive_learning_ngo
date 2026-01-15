@@ -61,7 +61,7 @@ def init_db():
     )
 
     # -------------------------
-    # CHAT MESSAGES
+    # CHAT MESSAGES (LIVE CHAT READY)
     # -------------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS messages (
@@ -69,9 +69,15 @@ def init_db():
         match_id TEXT,
         sender TEXT,
         message TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (datetime('now')),
+        created_ts INTEGER DEFAULT (strftime('%s','now'))
     )
     """)
+
+    # 🔁 SAFE MIGRATION FOR EXISTING DBs
+    add_column_if_missing(
+        "ALTER TABLE messages ADD COLUMN created_ts INTEGER"
+    )
 
     # -------------------------
     # SESSION FILES
@@ -138,7 +144,7 @@ def init_db():
     """)
 
     # =====================================================
-    # 🧠 STUDY SESSIONS (REQUIRED)
+    # 🧠 STUDY SESSIONS
     # =====================================================
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS sessions (
@@ -153,7 +159,7 @@ def init_db():
     """)
 
     # =====================================================
-    # 🧠 SESSION QUIZ ATTEMPTS (OPTIONAL BUT FUTURE-PROOF)
+    # 🧠 SESSION QUIZ ATTEMPTS
     # =====================================================
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS session_quizzes (
@@ -175,6 +181,10 @@ def init_db():
 
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_messages_match_id ON messages(match_id)"
+    )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_created_ts ON messages(created_ts)"
     )
 
     # -------------------------
