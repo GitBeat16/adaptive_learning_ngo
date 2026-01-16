@@ -6,77 +6,88 @@ from ai_helper import ask_ai
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 POLL_INTERVAL = 3
 
 # =========================================================
-# DATABASE & LOGIC HELPERS
+# SYSTEM & STATE
 # =========================================================
-def now():
-    return int(time.time())
+def now(): return int(time.time())
 
 def init_state():
     defaults = {
-        "current_match_id": None,
-        "session_ended": False,
-        "chat_log": [],
-        "last_msg_ts": 0,
-        "last_poll": 0,
-        "summary": None,
-        "quiz": None,
-        "rating_given": False,
-        "ai_chat": [],
-        "proposed_match": None,
-        "has_accepted": False
+        "current_match_id": None, "session_ended": False, "chat_log": [],
+        "last_msg_ts": 0, "last_poll": 0, "summary": None, "quiz": None,
+        "rating_given": False, "ai_chat": [], "proposed_match": None
     }
-    for k, v in defaults.items():
-        st.session_state.setdefault(k, v)
+    for k, v in defaults.items(): st.session_state.setdefault(k, v)
 
 def reset_matchmaking():
     conn.execute("UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?", (st.session_state.user_id,))
     conn.commit()
     for k in list(st.session_state.keys()):
-        if k not in ["user_id", "user_name", "logged_in", "page"]:
-            del st.session_state[k]
+        if k not in ["user_id", "user_name", "logged_in", "page"]: del st.session_state[k]
     st.rerun()
 
 # =========================================================
-# UI STYLING
+# EMERALD THEME & ANIMATION CSS
 # =========================================================
 st.markdown("""
     <style>
-    .stChatFloatingInputContainer { background-color: rgba(0,0,0,0); }
-    .status-box { padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; }
-    .chat-msg { margin: 10px 0; padding: 10px; border-radius: 5px; }
-    .user-msg { background-color: #f0f2f6; border-left: 5px solid #007bff; }
-    .partner-msg { background-color: #ffffff; border-left: 5px solid #28a745; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+    /* Global Styles */
+    .stApp { background-color: #fcfdfd; }
+    h1, h2, h3 { color: #064e3b; font-family: 'Inter', sans-serif; }
+    
+    /* Emerald Button with Pulse Animation */
+    div.stButton > button {
+        background-color: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1.2rem;
+        transition: all 0.3s ease;
+        font-weight: 500;
+        width: 100%;
+    }
+    div.stButton > button:hover {
+        background-color: #059669;
+        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+        transform: translateY(-1px);
+    }
+    div.stButton > button:active {
+        transform: scale(0.98);
+        background-color: #047857;
+    }
+
+    /* Minimal Chat Bubbles */
+    .chat-container { border: 1px solid #ecfdf5; border-radius: 12px; padding: 20px; background: white; }
+    .msg-box { padding: 12px 16px; border-radius: 12px; margin-bottom: 10px; font-size: 0.95rem; line-height: 1.5; }
+    .user-msg { background-color: #f1f5f9; color: #1e293b; align-self: flex-end; border-bottom-right-radius: 2px; }
+    .partner-msg { background-color: #ecfdf5; color: #065f46; align-self: flex-start; border-bottom-left-radius: 2px; }
+    
+    /* AI Sidebar Sidebar Minimalist */
+    [data-testid="stSidebar"] { background-color: #f8fafc; border-right: 1px solid #e2e8f0; }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
 # COMPONENTS
 # =========================================================
-def ai_panel():
+def ai_sidebar():
     with st.sidebar:
-        st.subheader("AI Study Assistant")
-        q = st.text_input("Ask AI a question", key="side_ai", placeholder="Type here...")
-        if st.button("Query") and q:
-            res = ask_ai(q)
-            st.session_state.ai_chat.insert(0, (q, res))
+        st.markdown("### AI assistant")
+        q = st.text_input("Ask a concept...", key="ai_q", label_visibility="collapsed")
+        if st.button("Query AI") and q:
+            ans = ask_ai(q)
+            st.session_state.ai_chat.insert(0, (q, ans))
         
         for q_h, a_h in st.session_state.ai_chat[:2]:
-            st.markdown(f"**Q:** {q_h}")
-            st.markdown(f"**A:** {a_h}")
-            st.divider()
+            with st.container(border=True):
+                st.markdown(f"**Q:** {q_h}")
+                st.markdown(f"**A:** {a_h}")
 
-def handle_polling(match_id):
+def poll_sync(match_id):
     if now() - st.session_state.last_poll > POLL_INTERVAL:
-        # Check for new messages
-        rows = conn.execute("""
-            SELECT sender, message, created_ts FROM messages 
-            WHERE match_id=? AND created_ts > ? ORDER BY created_ts
-        """, (match_id, st.session_state.last_msg_ts)).fetchall()
-        
+        rows = conn.execute("SELECT sender, message, created_ts FROM messages WHERE match_id=? AND created_ts > ? ORDER BY created_ts", (match_id, st.session_state.last_msg_ts)).fetchall()
         if rows:
             for s, m, ts in rows:
                 st.session_state.chat_log.append((s, m))
@@ -86,131 +97,104 @@ def handle_polling(match_id):
         st.session_state.last_poll = now()
 
 # =========================================================
-# MAIN PAGE FLOW
+# MAIN INTERFACE
 # =========================================================
 def matchmaking_page():
-    if not st.session_state.get("user_id"):
-        st.stop()
-    
+    if not st.session_state.get("user_id"): st.stop()
     init_state()
-    ai_panel()
+    ai_sidebar()
 
-    # --- PHASE 1: SEARCHING & HANDSHAKE ---
+    # --- PHASE 1: DISCOVERY & SYNC ---
     if not st.session_state.current_match_id:
-        st.title("Partner Discovery")
+        st.markdown("# Study discovery")
+        st.markdown("Connect with a peer to begin a synchronized learning session.")
         
-        # Check if someone else matched with us while we were waiting
-        check_match = conn.execute("SELECT match_id FROM profiles WHERE user_id=? AND status='matched'", 
-                                   (st.session_state.user_id,)).fetchone()
-        
-        if check_match:
-            st.session_state.current_match_id = check_match[0]
+        # Auto-check if someone else invited us
+        incoming = conn.execute("SELECT match_id FROM profiles WHERE user_id=? AND status='matched'", (st.session_state.user_id,)).fetchone()
+        if incoming:
+            st.session_state.current_match_id = incoming[0]
             st.rerun()
 
         if not st.session_state.proposed_match:
-            if st.button("Search for Compatible Partner", type="primary"):
-                # Logic to find a user (Simplified for example, use your existing SQL logic)
+            if st.button("Find compatible partner"):
                 res = conn.execute("SELECT p.user_id, a.name FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.status='waiting' AND p.user_id!=?", (st.session_state.user_id,)).fetchone()
                 if res:
                     st.session_state.proposed_match = {"id": res[0], "name": res[1]}
                     st.rerun()
-                else:
-                    st.info("Searching for active students...")
-                    time.sleep(2)
-                    st.rerun()
+                else: st.toast("Searching for active peers...")
         else:
-            # HANDSHAKE UI
-            target = st.session_state.proposed_match
-            st.markdown(f"### Connection Request: {target['name']}")
-            st.write("Both users must accept to begin the synchronized session.")
-            
-            col1, col2 = st.columns(2)
-            if col1.button("Accept Connection", use_container_width=True):
-                mid = f"session_{min(st.session_state.user_id, target['id'])}_{max(st.session_state.user_id, target['id'])}"
-                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id=?", (mid, st.session_state.user_id))
-                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id=?", (mid, target['id']))
-                conn.commit()
-                st.session_state.current_match_id = mid
-                st.balloons()
-                st.rerun()
-            
-            if col2.button("Decline", use_container_width=True):
-                st.session_state.proposed_match = None
-                st.rerun()
+            with st.container(border=True):
+                st.markdown(f"### Found: {st.session_state.proposed_match['name']}")
+                st.write("Both users must accept to initialize the live session.")
+                c1, c2 = st.columns(2)
+                if c1.button("Accept session"):
+                    mid = f"sync_{min(st.session_state.user_id, st.session_state.proposed_match['id'])}_{now()}"
+                    conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id IN (?,?)", (mid, st.session_state.user_id, st.session_state.proposed_match['id']))
+                    conn.commit()
+                    st.session_state.current_match_id = mid
+                    st.balloons()
+                    st.rerun()
+                if c2.button("Decline", type="secondary"): 
+                    st.session_state.proposed_match = None
+                    st.rerun()
 
-    # --- PHASE 2: LIVE SESSION ---
+    # --- PHASE 2: LIVE SYNC SESSION ---
     elif st.session_state.current_match_id and not st.session_state.session_ended:
-        handle_polling(st.session_state.current_match_id)
+        poll_sync(st.session_state.current_match_id)
         
-        st.title("Live Collaboration")
-        st.caption(f"Match ID: {st.session_state.current_match_id}")
-
-        col_chat, col_tools = st.columns([2, 1])
-
-        with col_chat:
-            st.subheader("Discussion")
+        col_main, col_side = st.columns([2, 1], gap="large")
+        
+        with col_main:
+            st.markdown("### Collaborative chat")
             for sender, msg in st.session_state.chat_log:
-                div_class = "user-msg" if sender == st.session_state.user_name else "partner-msg"
-                st.markdown(f"<div class='chat-msg {div_class}'><b>{sender}</b><br>{msg}</div>", unsafe_allow_html=True)
-
-            with st.form("send_msg", clear_on_submit=True):
-                m_text = st.text_input("Type your message...", label_visibility="collapsed")
-                if st.form_submit_button("Send Message"):
-                    conn.execute("INSERT INTO messages(match_id, sender, message, created_ts) VALUES (?,?,?,?)",
-                                 (st.session_state.current_match_id, st.session_state.user_name, m_text, now()))
+                css_class = "user-msg" if sender == st.session_state.user_name else "partner-msg"
+                st.markdown(f"<div class='msg-box {css_class}'><b>{sender}</b><br>{msg}</div>", unsafe_allow_html=True)
+            
+            with st.form("chat_input", clear_on_submit=True):
+                msg = st.text_input("Your message", placeholder="Type something...", label_visibility="collapsed")
+                if st.form_submit_button("Send"):
+                    conn.execute("INSERT INTO messages(match_id, sender, message, created_ts) VALUES (?,?,?,?)", (st.session_state.current_match_id, st.session_state.user_name, msg, now()))
                     conn.commit()
                     st.rerun()
 
-        with col_tools:
-            st.subheader("Session Tools")
+        with col_side:
+            st.markdown("### Resources")
             with st.container(border=True):
-                st.write("File Exchange")
-                up = st.file_uploader("Upload PDF/Image", label_visibility="collapsed")
-                if up:
-                    fpath = os.path.join(UPLOAD_DIR, f"{st.session_state.current_match_id}_{up.name}")
-                    with open(fpath, "wb") as f:
-                        f.write(up.getbuffer())
-                    st.success("File shared.")
+                file = st.file_uploader("Upload material", label_visibility="collapsed")
+                if file:
+                    with open(os.path.join(UPLOAD_DIR, file.name), "wb") as f: f.write(file.getbuffer())
+                    st.toast("File synchronized")
             
             st.divider()
-            if st.button("End Session", type="primary"):
-                # Wrap up logic
-                full_text = " ".join([m for _, m in st.session_state.chat_log])
-                st.session_state.summary = ask_ai("Summarize this: " + full_text)
-                st.session_state.quiz = ask_ai("Create 3 MCQs based on: " + full_text)
+            if st.button("Complete session", type="primary"):
+                chat_text = " ".join([m for _, m in st.session_state.chat_log])
+                st.session_state.summary = ask_ai("Summarize: " + chat_text)
+                st.session_state.quiz = ask_ai("MCQ Quiz: " + chat_text)
                 st.session_state.session_ended = True
                 st.rerun()
 
-    # --- PHASE 3: POST-SESSION ---
+    # --- PHASE 3: RECAP ---
     else:
-        st.title("Session Complete")
+        st.markdown("# Session recap")
+        st.markdown(st.session_state.summary)
         
-        st.markdown("### Summary")
-        st.info(st.session_state.summary)
-
         if not st.session_state.rating_given:
-            st.subheader("Rate your Partner")
-            stars = st.feedback("stars")
-            if stars is not None:
-                conn.execute("INSERT INTO session_ratings(match_id, rater_id, rating) VALUES (?,?,?)",
-                             (st.session_state.current_match_id, st.session_state.user_id, stars + 1))
-                conn.commit()
+            st.markdown("#### Rate your partner")
+            rating = st.feedback("stars")
+            if rating is not None:
                 st.session_state.rating_given = True
-                st.success("Rating saved.")
+                st.success("Rating submitted")
 
         st.divider()
-        st.subheader("Knowledge Check")
+        st.markdown("#### Assessment")
         st.write(st.session_state.quiz)
         
-        score = st.number_input("How many did you get right? (0-3)", 0, 3)
-        if st.button("Submit Score"):
-            if score == 3:
+        score = st.number_input("Final score (out of 3)", 0, 3)
+        if st.button("Check results"):
+            if score == 3: 
                 st.balloons()
-                st.success("Perfect score!")
-            else:
-                st.write("Good effort! Review the summary again.")
-
-        if st.button("Finish & Exit"):
-            reset_matchmaking()
+                st.success("Perfect mastery!")
+        
+        if st.button("Return to dashboard"): reset_matchmaking()
 
 matchmaking_page()
