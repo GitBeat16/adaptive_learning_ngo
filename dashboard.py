@@ -4,9 +4,6 @@ from datetime import timedelta
 from database import cursor, conn
 from streak import init_streak, render_streak_ui
 
-# Note: Ensure 'client' is imported or available from your main app script
-# If this is a separate file, you may need: from ai_helper import client
-
 SUBJECTS = ["Mathematics", "English", "Science"]
 TIME_SLOTS = ["4-5 PM", "5-6 PM", "6-7 PM"]
 
@@ -37,17 +34,19 @@ def load_match_history(user_id):
 
 def send_rematch_request(to_user_id):
     cursor.execute("""
-        INSERT INTO rematch_requests (from_user, to_user)
-        VALUES (?, ?)
+        INSERT INTO rematch_requests (from_user, to_user, status, seen)
+        VALUES (?, ?, 'pending', 0)
     """, (st.session_state.user_id, to_user_id))
     conn.commit()
 
 def load_incoming_requests(user_id):
+    # Modified to include the 'seen' status for badge logic
     cursor.execute("""
-        SELECT rr.id, au.name, au.id
+        SELECT rr.id, au.name, au.id, rr.seen
         FROM rematch_requests rr
         JOIN auth_users au ON au.id = rr.from_user
         WHERE rr.to_user = ? AND rr.status = 'pending'
+        ORDER BY rr.id DESC
     """, (user_id,))
     return cursor.fetchall()
 
@@ -62,11 +61,28 @@ def accept_request(req_id, from_user_id):
     """, (st.session_state.user_id, from_user_id))
     conn.commit()
 
+def check_notifications():
+    """Triggers a toast for unread notifications and marks them as seen."""
+    cursor.execute("""
+        SELECT COUNT(*) FROM rematch_requests 
+        WHERE to_user = ? AND status = 'pending' AND seen = 0
+    """, (st.session_state.user_id,))
+    unread_count = cursor.fetchone()[0]
+    
+    if unread_count > 0:
+        st.toast(f"✨ You have {unread_count} new rematch request(s)!", icon="🔔")
+        # Mark as seen so toast only appears once per new request
+        cursor.execute("UPDATE rematch_requests SET seen = 1 WHERE to_user = ?", (st.session_state.user_id,))
+        conn.commit()
+
 # =====================================================
 # DASHBOARD
 # =====================================================
 def dashboard_page():
     init_streak()
+    
+    # Check for new rematch notifications
+    check_notifications()
 
     st.title(f"Welcome back, {st.session_state.user_name}")
     st.caption("Your learning journey at a glance")
@@ -200,16 +216,21 @@ def dashboard_page():
     st.divider()
 
     # -------------------------------------------------
-    # REMATCH REQUESTS
+    # REMATCH REQUESTS (With In-App Badges)
     # -------------------------------------------------
     st.subheader("Rematch Requests")
     requests = load_incoming_requests(st.session_state.user_id)
     if not requests:
         st.info("No new requests.")
     else:
-        for req_id, sender_name, sender_id in requests:
+        for req_id, sender_name, sender_id, seen_status in requests:
             col1, col2 = st.columns([3,1])
-            col1.write(f"👤 {sender_name} wants to study again")
+            
+            # Show a red 'NEW' badge if seen_status is 0 (though we mark them seen on page load, 
+            # this logic allows for future granular control)
+            badge = " <span style='background:#ff4b4b; color:white; padding:2px 6px; border-radius:4px; font-size:10px;'>NEW</span>" if seen_status == 0 else ""
+            col1.markdown(f"👤 **{sender_name}** wants to study again{badge}", unsafe_allow_html=True)
+            
             if col2.button("Accept", key=f"accept_{req_id}"):
                 accept_request(req_id, sender_id)
                 st.success("Accepted! Go to Matchmaking.")
