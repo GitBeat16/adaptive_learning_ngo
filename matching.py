@@ -19,10 +19,8 @@ def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def run_query(query, params=(), fetchone=False, fetchall=False, commit=False):
-    """Execution wrapper to prevent Threading and Operational Errors."""
     conn = get_db_connection()
     try:
-        # Enable dictionary-like access to avoid index errors
         conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         cursor.execute(query, params)
@@ -41,7 +39,7 @@ def run_query(query, params=(), fetchone=False, fetchall=False, commit=False):
         conn.close()
 
 # =========================================================
-# ASSETS & UI
+# ASSETS & UI THEME
 # =========================================================
 def load_lottieurl(url: str):
     try:
@@ -62,6 +60,14 @@ def inject_emerald_theme():
             box-shadow: 0 10px 25px rgba(5, 150, 105, 0.1) !important;
             margin-bottom: 25px;
             color: #064e3b;
+        }
+        .summary-box { 
+            background: #ecfdf5; 
+            border-left: 5px solid #10b981; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin: 15px 0; 
+            color: #064e3b; 
         }
         div.stButton > button {
             background-color: #10b981 !important;
@@ -87,11 +93,11 @@ def show_discovery():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Network Discovery")
-    lottie_data = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
-    if lottie_data: st_lottie(lottie_data, height=200)
-    st.write("Scanning for compatible nodes...")
+    lottie_scan = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
+    if lottie_scan: st_lottie(lottie_scan, height=200, key="scan")
+    st.write("Scanning for active peer nodes in the emerald network...")
     
-    if st.button("Initiate Scan"):
+    if st.button("Initiate Discovery Scan"):
         peer = run_query("""
             SELECT p.user_id, a.name FROM profiles p 
             JOIN auth_users a ON a.id = p.user_id 
@@ -112,6 +118,9 @@ def show_confirmation():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Connection Request")
+    lottie_conn = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_pqnfmone.json")
+    if lottie_conn: st_lottie(lottie_conn, height=150, key="conn")
+    
     status_data = run_query("SELECT accepted FROM profiles WHERE user_id=?", (st.session_state.user_id,), fetchone=True)
     peer_data = run_query("SELECT accepted FROM profiles WHERE user_id=?", (st.session_state.peer_info['id'],), fetchone=True)
     my_acc = status_data['accepted'] if status_data else 0
@@ -121,11 +130,12 @@ def show_confirmation():
         st.session_state.session_step = "live"
         st.rerun()
     elif my_acc == 1:
-        st.info("Synchronizing with peer...")
+        st.info(f"Synchronizing... Waiting for {st.session_state.peer_info['name']} to accept.")
         time.sleep(2)
         st.rerun()
     else:
-        if st.button("Establish Link"):
+        st.write(f"Establish a secure learning link with **{st.session_state.peer_info['name']}**?")
+        if st.button("Confirm Link"):
             run_query("UPDATE profiles SET accepted=1 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.rerun()
         if st.button("Abort"):
@@ -165,19 +175,31 @@ def show_rating():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Performance Review")
-    rating = st.select_slider("Rate Partner Efficiency", options=[1, 2, 3, 4, 5], value=5)
-    feedback = st.text_area("Observations")
-    if st.button("Submit Review"):
+    lottie_rate = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_myejiobi.json")
+    if lottie_rate: st_lottie(lottie_rate, height=150, key="rate")
+
+    st.write(f"Evaluate the collaboration quality of **{st.session_state.peer_info['name']}**")
+    rating = st.select_slider("Efficiency Rating", options=[1, 2, 3, 4, 5], value=5)
+    feedback = st.text_area("Observation Notes")
+    
+    if st.button("Submit Report"):
         run_query("INSERT INTO session_ratings (match_id, rater_id, rating, feedback) VALUES (?,?,?,?)",
                  (st.session_state.current_match_id, st.session_state.user_id, rating, feedback), commit=True)
-        msgs = run_query("SELECT message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
-        transcript = " ".join([m['message'] for m in msgs]) if msgs else "No transcript"
-        prompt = f"Create a JSON list of 3 MCQs based on: {transcript}. Format: [{{'question':'', 'options':['',''], 'answer':''}}]"
-        try:
-            res = ask_ai(prompt)
-            st.session_state.quiz_data = json.loads(res[res.find('['):res.rfind(']')+1])
-        except:
-            st.session_state.quiz_data = []
+        
+        with st.spinner("Generating AI Session Analytics..."):
+            msgs = run_query("SELECT sender, message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
+            transcript = "\n".join([f"{m['sender']}: {m['message']}" for m in msgs]) if msgs else "No data."
+            
+            prompt = f"Analyze: {transcript}\n\nTasks:\n1. 3-bullet summary.\n2. 3 MCQs JSON.\nFormat: SUMMARY: [text] QUIZ_JSON: [json]"
+            try:
+                full_res = ask_ai(prompt)
+                st.session_state.session_summary = full_res.split("QUIZ_JSON:")[0].replace("SUMMARY:", "").strip()
+                json_part = full_res.split("QUIZ_JSON:")[1].strip()
+                st.session_state.quiz_data = json.loads(json_part[json_part.find('['):json_part.rfind(']')+1])
+            except:
+                st.session_state.session_summary = "Session concluded successfully."
+                st.session_state.quiz_data = []
+        
         st.session_state.session_step = "quiz"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -185,26 +207,33 @@ def show_rating():
 def show_quiz():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title("Knowledge Check")
+    st.title("Knowledge Verification")
+    
+    if "session_summary" in st.session_state:
+        st.subheader("Session Summary")
+        st.markdown(f"<div class='summary-box'>{st.session_state.session_summary}</div>", unsafe_allow_html=True)
+    
     quiz = st.session_state.get('quiz_data', [])
     if not quiz:
         st.write("Verification data unavailable.")
-        if st.button("Continue"): st.session_state.quiz_done = True
+        if st.button("Complete"): st.session_state.quiz_done = True
     else:
         with st.form("quiz_form"):
             user_ans = []
             for i, q in enumerate(quiz):
-                st.write(f"{i+1}. {q['question']}")
-                user_ans.append(st.radio("Options", q['options'], key=f"q_{i}"))
-            if st.form_submit_button("Submit Verification"):
+                st.write(f"**Question {i+1}: {q['question']}**")
+                user_ans.append(st.radio("Select Option", q['options'], key=f"q_{i}"))
+            if st.form_submit_button("Submit Answers"):
                 score = sum(1 for i, q in enumerate(quiz) if user_ans[i] == q['answer'])
-                st.success(f"Final Score: {score}/{len(quiz)}")
+                st.success(f"Verification Score: {score}/{len(quiz)}")
                 st.session_state.quiz_done = True
+
     if st.session_state.get('quiz_done'):
         if st.button("Return to Discovery Mode"):
             run_query("UPDATE profiles SET status='active', match_id=NULL, accepted=0 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.session_state.session_step = "discovery"
-            del st.session_state.quiz_done
+            for key in ['session_summary', 'quiz_data', 'quiz_done']:
+                if key in st.session_state: del st.session_state[key]
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
