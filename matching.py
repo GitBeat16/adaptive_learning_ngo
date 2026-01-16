@@ -200,7 +200,7 @@ def matchmaking_page():
                 st.session_state.session_start_time = now()
                 st.session_state.confirmed = True
                 st.balloons()
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.info("Waiting for compatible users…")
 
@@ -222,7 +222,7 @@ def matchmaking_page():
             (st.session_state.current_match_id, st.session_state.user_name, msg, now())
         )
         conn.commit()
-        st.experimental_rerun()
+        st.rerun()
 
     # -----------------------------------------------------
     # FILE UPLOAD
@@ -246,7 +246,7 @@ def matchmaking_page():
 
         st.session_state.session_ended = True
         st.session_state.summary = generate_summary(st.session_state.chat_log)
-        st.experimental_rerun()
+        st.rerun()
 
     if st.session_state.session_ended:
         st.subheader("📝 Session Summary")
