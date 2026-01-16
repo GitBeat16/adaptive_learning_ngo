@@ -7,8 +7,6 @@ import os
 # =========================================================
 DB_PATH = "app.db"
 
-# Global connection used by legacy parts of the app
-# (Newer modules like matching.py use the DB_PATH to create fresh connections)
 conn = sqlite3.connect(
     DB_PATH,
     check_same_thread=False
@@ -43,7 +41,7 @@ def init_db():
         """)
 
         # -------------------------
-        # PROFILES (Unified Schema)
+        # PROFILES
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS profiles (
@@ -63,9 +61,6 @@ def init_db():
         )
         """)
 
-        # -------------------------
-        # SAFE MIGRATIONS (PROFILES)
-        # -------------------------
         migrations = [
             ("class_level", "INTEGER"),
             ("last_seen", "INTEGER"),
@@ -99,7 +94,7 @@ def init_db():
             cursor.execute("ALTER TABLE messages ADD COLUMN file_path TEXT")
 
         # -------------------------
-        # SESSION RATINGS (Updated for Partner Feedback)
+        # SESSION RATINGS
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS session_ratings (
@@ -112,7 +107,6 @@ def init_db():
         )
         """)
         
-        # Migration for feedback column in ratings
         if not column_exists("session_ratings", "feedback"):
             cursor.execute("ALTER TABLE session_ratings ADD COLUMN feedback TEXT")
 
@@ -128,7 +122,7 @@ def init_db():
         """)
 
         # -------------------------
-        # REMATCH REQUESTS
+        # REMATCH REQUESTS (Updated with 'seen' column)
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS rematch_requests (
@@ -136,22 +130,20 @@ def init_db():
             from_user INTEGER,
             to_user INTEGER,
             status TEXT DEFAULT 'pending',
+            seen INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         )
         """)
 
+        if not column_exists("rematch_requests", "seen"):
+            cursor.execute("ALTER TABLE rematch_requests ADD COLUMN seen INTEGER DEFAULT 0")
+
         # -------------------------
-        # INDEXES FOR PERFORMANCE
+        # INDEXES
         # -------------------------
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_profiles_match_id ON profiles(match_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_match_id ON messages(match_id)")
 
-        # -------------------------
-        # FINAL COMMIT
-        # -------------------------
         conn.commit()
 
-# =========================================================
-# AUTO INIT
-# =========================================================
 init_db()
