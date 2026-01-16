@@ -150,60 +150,65 @@ def matchmaking_page():
     require_login()
     init_state()
 
-    # ================= UI STYLE (ONLY SESSION BUTTONS EMERALD) =================
+    # ================= EMERALD BUTTON STYLE (SESSION ONLY) =================
     st.markdown("""
     <style>
-    /* MAIN CONTENT BUTTONS ONLY */
     .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button {
-        position: relative;
-        overflow: hidden;
-        background: linear-gradient(135deg, #0f766e, #14b8a6, #22c55e);
-        color: white;
-        border: none;
-        border-radius: 999px;
-        padding: 0.55rem 1.1rem;
-        font-weight: 600;
-        font-size: 0.85rem;
-        cursor: pointer;
-        transition: transform .2s ease, box-shadow .2s ease;
-        box-shadow: 0 6px 18px rgba(20,184,166,.35);
-    }
-
-    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 28px rgba(20,184,166,.45);
-        background: linear-gradient(135deg, #0d9488, #10b981);
-    }
-
-    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 8px;
-        height: 8px;
-        background: rgba(255,255,255,.5);
-        border-radius: 50%;
-        transform: translate(-50%,-50%) scale(0);
-        opacity: 0;
-    }
-
-    .stApp > div:not(section[data-testid="stSidebar"]) .stButton > button:active::after {
-        animation: ripple .6s ease-out;
-    }
-
-    @keyframes ripple {
-        0% { transform: translate(-50%,-50%) scale(0); opacity:.6; }
-        100% { transform: translate(-50%,-50%) scale(18); opacity:0; }
+        background: linear-gradient(135deg,#0f766e,#14b8a6,#22c55e);
+        color:white;
+        border:none;
+        border-radius:999px;
+        padding:0.55rem 1.1rem;
+        font-weight:600;
+        box-shadow:0 6px 18px rgba(20,184,166,.35);
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # =========================================================
     st.markdown("## Study Matchmaking")
     ai_chat_ui()
     st.divider()
 
-    # 👉 ALL LOGIC BELOW IS UNCHANGED
-    # Confirmation page, balloons, live chat,
-    # file upload, summary, quiz, rating, back to matchmaking
+    # ================= FIND PARTNER (VISIBLE ENTRY POINT) =================
+    if not st.session_state.confirmed and not st.session_state.proposed_match:
+        st.markdown(
+            """
+            <div style="
+                background:#ffffff;
+                border-radius:16px;
+                padding:1.2rem;
+                box-shadow:0 10px 24px rgba(0,0,0,.06);
+            ">
+            <h4>Find a study partner</h4>
+            <p>
+            We’ll match you with someone based on subjects, grade, and time slot.
+            </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        r = conn.execute("""
+            SELECT grade, time, strong_subjects, weak_subjects
+            FROM profiles WHERE user_id=?
+        """, (st.session_state.user_id,)).fetchone()
+
+        current = {
+            "grade": r[0],
+            "time": r[1],
+            "strong": (r[2] or "").split(","),
+            "weak": (r[3] or "").split(","),
+        }
+
+        if st.button("Find compatible partner"):
+            best, score = find_best_match(current)
+            if best:
+                st.session_state.proposed_match = best
+                st.session_state.proposed_score = score
+                st.rerun()
+            else:
+                st.info("No compatible users right now. Try again shortly.")
+        return
+
+    # 👉 EVERYTHING BELOW (confirmation, balloons, live chat, files,
+    # 👉 summary, quiz, rating, back to matchmaking) REMAINS UNCHANGED
