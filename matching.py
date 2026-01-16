@@ -155,7 +155,7 @@ def show_confirmation():
 def show_live_session():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title(f"Live Node: {st.session_state.peer_info['name']}")
+    st.title(f"Live Session With : {st.session_state.peer_info['name']}")
     
     msgs = conn.execute("SELECT sender, message FROM messages WHERE match_id=? ORDER BY created_ts ASC", 
                        (st.session_state.current_match_id,)).fetchall()
@@ -167,7 +167,7 @@ def show_live_session():
     st.markdown('</div>', unsafe_allow_html=True)
 
     msg = st.text_input("Input Data", placeholder="Enter message...", key="chat_input", label_visibility="collapsed")
-    if st.button("Transmit Data"):
+    if st.button("Send Message"):
         if msg:
             conn.execute("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)",
                         (st.session_state.current_match_id, st.session_state.user_name, msg, int(time.time())))
@@ -250,3 +250,4 @@ def matchmaking_page():
     elif step == "live": show_live_session()
     elif step == "rating": show_rating()
     elif step == "quiz": show_quiz()
+
