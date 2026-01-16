@@ -95,7 +95,7 @@ def show_discovery():
     st.title("Network Discovery")
     lottie_scan = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
     if lottie_scan: st_lottie(lottie_scan, height=200, key="scan")
-    st.write("Scanning for active peer nodes in the emerald network...")
+    st.write("Scanning for active peer nodes...")
     
     if st.button("Initiate Discovery Scan"):
         peer = run_query("""
@@ -223,10 +223,25 @@ def show_quiz():
             for i, q in enumerate(quiz):
                 st.write(f"**Question {i+1}: {q['question']}**")
                 user_ans.append(st.radio("Select Option", q['options'], key=f"q_{i}"))
-            if st.form_submit_button("Submit Answers"):
-                score = sum(1 for i, q in enumerate(quiz) if user_ans[i] == q['answer'])
-                st.success(f"Verification Score: {score}/{len(quiz)}")
-                st.session_state.quiz_done = True
+            
+            submitted = st.form_submit_button("Submit Answers")
+
+        if submitted or st.session_state.get('quiz_done'):
+            score = 0
+            st.divider()
+            st.subheader("Results & Corrections")
+            
+            for i, q in enumerate(quiz):
+                is_correct = user_ans[i] == q['answer']
+                if is_correct:
+                    score += 1
+                    st.success(f"Question {i+1}: Correct! (Your answer: {user_ans[i]})")
+                else:
+                    st.error(f"Question {i+1}: Incorrect.")
+                    st.info(f"The correct answer was: **{q['answer']}**")
+            
+            st.metric("Final Score", f"{score} / {len(quiz)}")
+            st.session_state.quiz_done = True
 
     if st.session_state.get('quiz_done'):
         if st.button("Return to Discovery Mode"):
