@@ -19,7 +19,6 @@ from dashboard import dashboard_page
 from matching import matchmaking_page
 
 # ---- DATABASE ----
-# ❗ DO NOT call init_db() here (already auto-called in database.py)
 from database import init_db
 
 # =========================================================
@@ -33,25 +32,43 @@ html, body, [class*="css"] {
     font-family: 'Poppins','Inter','Segoe UI',sans-serif;
 }
 
+/* App background */
 .stApp {
     background: linear-gradient(135deg,#f5f7fa,#eef1f5);
 }
 
+/* Sidebar */
 section[data-testid="stSidebar"] {
-  background: rgba(255,255,255,0.85);
+  background: rgba(255,255,255,0.9);
   backdrop-filter: blur(12px);
   border-right: 1px solid rgba(200,200,200,0.3);
 }
 
+/* ================= SAHAY TITLE (ONLY THIS CHANGED) ================= */
 .sidebar-header {
-  padding:1.4rem;
-  border-radius:18px;
-  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  padding:1.6rem;
+  border-radius:20px;
+  background:
+    radial-gradient(circle at top left, #818cf8, #6366f1 40%, #4f46e5);
   color:white;
-  margin-bottom:1.2rem;
+  margin-bottom:1.4rem;
   text-align:center;
+  box-shadow:0 12px 30px rgba(79,70,229,0.45);
 }
 
+.sidebar-header .app-name {
+  font-size:2.6rem;
+  font-weight:800;
+  letter-spacing:0.04em;
+}
+
+.sidebar-header .username {
+  margin-top:0.4rem;
+  font-size:0.95rem;
+  opacity:0.9;
+}
+
+/* Cards */
 .card {
   background: rgba(255,255,255,.95);
   border-radius:20px;
@@ -59,18 +76,57 @@ section[data-testid="stSidebar"] {
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
 
-.donate-btn {
-  display:block;
-  width:100%;
-  padding:0.9rem 1rem;
-  margin-top:1rem;
-  border-radius:999px;
-  text-align:center;
-  font-weight:700;
-  font-size:0.95rem;
-  color:#ffffff !important;
-  background:linear-gradient(135deg,#6366f1,#4f46e5);
-  text-decoration:none;
+/* ================= PURPLE BUTTON SYSTEM ================= */
+/* Applies everywhere EXCEPT sidebar nav buttons logic-wise */
+.stApp .stButton > button {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg,#6366f1,#4f46e5);
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: 0 6px 18px rgba(79,70,229,0.35);
+}
+
+/* Hover */
+.stApp .stButton > button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(79,70,229,0.45);
+  background: linear-gradient(135deg,#4f46e5,#4338ca);
+}
+
+/* Ripple */
+.stApp .stButton > button::after {
+  content:"";
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:8px;
+  height:8px;
+  background:rgba(255,255,255,0.5);
+  border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);
+  opacity:0;
+}
+
+.stApp .stButton > button:active::after {
+  animation:ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  0% {
+    transform:translate(-50%,-50%) scale(0);
+    opacity:0.7;
+  }
+  100% {
+    transform:translate(-50%,-50%) scale(18);
+    opacity:0;
+  }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -101,10 +157,8 @@ if not st.session_state.logged_in:
 with st.sidebar:
     st.markdown(f"""
     <div class="sidebar-header">
-        <div style="font-size:2.4rem;font-weight:700;">Sahay</div>
-        <div style="margin-top:0.45rem;font-size:0.95rem;">
-            {st.session_state.user_name}
-        </div>
+        <div class="app-name">Sahay</div>
+        <div class="username">{st.session_state.user_name}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -144,7 +198,7 @@ elif page == "Practice":
     practice_page()
 
 elif page == "Donations":
-    st.markdown("<div class='card'><h2>🤝 Support Education</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><h2>Support Education</h2></div>", unsafe_allow_html=True)
 
 elif page == "Admin":
     key = st.text_input("Admin Access Key", type="password")
