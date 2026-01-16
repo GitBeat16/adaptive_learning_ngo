@@ -4,7 +4,7 @@ import os
 import json
 import sqlite3
 import requests
-import re  # Added for robust AI response parsing
+import re  
 from database import DB_PATH
 from ai_helper import ask_ai
 from streamlit_lottie import st_lottie
@@ -13,9 +13,7 @@ from streamlit_lottie import st_lottie
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# =========================================================
-# THREAD-SAFE DATABASE HELPER
-# =========================================================
+# (get_db_connection, run_query, load_lottieurl, inject_emerald_theme remain unchanged)
 def get_db_connection():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -39,9 +37,6 @@ def run_query(query, params=(), fetchone=False, fetchall=False, commit=False):
     finally:
         conn.close()
 
-# =========================================================
-# ASSETS & UI THEME
-# =========================================================
 def load_lottieurl(url: str):
     try:
         r = requests.get(url)
@@ -91,10 +86,7 @@ def inject_emerald_theme():
         </style>
     """, unsafe_allow_html=True)
 
-# =========================================================
-# PAGE MODULES
-# =========================================================
-
+# (Discovery, Confirmation, Live Session functions remain unchanged)
 def show_discovery():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
@@ -102,14 +94,12 @@ def show_discovery():
     lottie_scan = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
     if lottie_scan: st_lottie(lottie_scan, height=200, key="scan")
     st.write("Scanning for active peer nodes in the emerald network...")
-    
     if st.button("Initiate Discovery Scan"):
         peer = run_query("""
             SELECT p.user_id, a.name FROM profiles p 
             JOIN auth_users a ON a.id = p.user_id 
             WHERE p.status = 'waiting' AND p.user_id != ? LIMIT 1
         """, (st.session_state.user_id,), fetchone=True)
-        
         if peer:
             m_id = f"sess_{int(time.time())}"
             st.session_state.peer_info = {"id": peer['user_id'], "name": peer['name']}
@@ -126,12 +116,10 @@ def show_confirmation():
     st.title("Connection Request")
     lottie_conn = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_pqnfmone.json")
     if lottie_conn: st_lottie(lottie_conn, height=150, key="conn")
-    
     status_data = run_query("SELECT accepted FROM profiles WHERE user_id=?", (st.session_state.user_id,), fetchone=True)
     peer_data = run_query("SELECT accepted FROM profiles WHERE user_id=?", (st.session_state.peer_info['id'],), fetchone=True)
     my_acc = status_data['accepted'] if status_data else 0
     peer_acc = peer_data['accepted'] if peer_data else 0
-
     if my_acc == 1 and peer_acc == 1:
         st.session_state.session_step = "live"
         st.rerun()
@@ -192,41 +180,26 @@ def show_rating():
         run_query("INSERT INTO session_ratings (match_id, rater_id, rating, feedback) VALUES (?,?,?,?)",
                  (st.session_state.current_match_id, st.session_state.user_id, rating, feedback), commit=True)
         
-        with st.spinner("Generating AI Session Analytics..."):
+        with st.spinner("Groq AI Generating Session Analytics..."):
             msgs = run_query("SELECT sender, message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
             transcript = "\n".join([f"{m['sender']}: {m['message']}" for m in msgs]) if msgs else "No data."
             
-            # OPENAI OPTIMIZED PROMPT
             prompt = f"""
-            Analyze this study chat transcript:
-            {transcript}
-
-            1. Provide a 3-bullet point summary of the topics.
-            2. Provide 3 MCQs in a valid JSON list format.
-
-            Format Requirements:
-            [SUMMARY]
-            (Your bullet points here)
-            [/SUMMARY]
-
-            [QUIZ]
-            [
-              {{"question": "...", "options": ["A", "B", "C"], "answer": "A"}},
-              ...
-            ]
-            [/QUIZ]
+            Analyze this study chat transcript: {transcript}
+            1. Provide a 3-bullet point summary inside [SUMMARY] [/SUMMARY] tags.
+            2. Provide 3 MCQs in a valid JSON list inside [QUIZ] [/QUIZ] tags.
+            Example JSON: [{{"question": "...", "options": ["A", "B", "C"], "answer": "A"}}]
             """
             
             try:
                 full_res = ask_ai(prompt)
                 
-                # Robust extraction for Summary using OpenAI tags
+                # Robust extraction
                 if "[SUMMARY]" in full_res:
                     st.session_state.session_summary = full_res.split("[SUMMARY]")[1].split("[/SUMMARY]")[0].strip()
                 else:
                     st.session_state.session_summary = "Session concluded successfully."
 
-                # Robust extraction for JSON Quiz (OpenAI sometimes adds Markdown backticks)
                 json_pattern = re.compile(r'\[\s*\{.*\}\s*\]', re.DOTALL)
                 match = json_pattern.search(full_res)
                 if match:
@@ -235,25 +208,24 @@ def show_rating():
                     st.session_state.quiz_data = []
 
             except Exception as e:
-                st.session_state.session_summary = "AI Summary currently unavailable. Please check billing status."
+                st.session_state.session_summary = "AI Summary currently unavailable."
                 st.session_state.quiz_data = []
         
         st.session_state.session_step = "quiz"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
+# (show_quiz and matchmaking_page remain unchanged)
 def show_quiz():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Knowledge Verification")
-    
     if "session_summary" in st.session_state:
         st.subheader("Session Summary")
         st.markdown(f"<div class='summary-box'>{st.session_state.session_summary}</div>", unsafe_allow_html=True)
-    
     quiz = st.session_state.get('quiz_data', [])
     if not quiz:
-        st.write("Verification data unavailable. Please check OpenAI API billing.")
+        st.write("Verification data unavailable. Returning to dashboard.")
         if st.button("Complete"): st.session_state.quiz_done = True
     else:
         with st.form("quiz_form"):
@@ -265,7 +237,6 @@ def show_quiz():
                 score = sum(1 for i, q in enumerate(quiz) if user_ans[i] == q['answer'])
                 st.success(f"Verification Score: {score}/{len(quiz)}")
                 st.session_state.quiz_done = True
-
     if st.session_state.get('quiz_done'):
         if st.button("Return to Discovery Mode"):
             run_query("UPDATE profiles SET status='active', match_id=NULL, accepted=0 WHERE user_id=?", (st.session_state.user_id,), commit=True)
