@@ -3,7 +3,7 @@ import os
 from openai import OpenAI
 
 # =========================================================
-# PAGE CONFIG (MUST BE FIRST)
+# PAGE CONFIG
 # =========================================================
 st.set_page_config(
     page_title="Sahay | Peer Learning Matchmaking",
@@ -11,13 +11,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---- OPENAI CLIENT SETUP ----
-# Pulling from secrets for security. 
-# If running locally without secrets.toml, replace with client = OpenAI(api_key="YOUR_NEW_KEY")
+# ---- SECURE OPENAI CLIENT SETUP ----
 try:
+    # This looks for the key in .streamlit/secrets.toml
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-except:
-    st.warning("API Key not found in secrets. Please add it to .streamlit/secrets.toml")
+except Exception:
+    client = None
 
 # ---- DIRECTORY SETUP ----
 if not os.path.exists("uploads"):
@@ -32,7 +31,7 @@ from dashboard import dashboard_page
 from matching import matchmaking_page
 
 # =========================================================
-# GLOBAL UI STYLES (EMERALD THEME + RIPPLE BUTTONS)
+# GLOBAL UI STYLES (EMERALD THEME)
 # =========================================================
 st.markdown("""
 <style>
@@ -90,6 +89,7 @@ section[data-testid="stSidebar"] {
     transition: background 0.5s;
     text-align: center;
     box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+    width: 100%;
 }
 
 .ripple-btn:hover {
@@ -103,7 +103,6 @@ section[data-testid="stSidebar"] {
     transition: background 0s;
 }
 
-/* --- DONATION CARD --- */
 .donation-card {
     background: white; 
     padding: 1.8rem; 
@@ -179,17 +178,20 @@ elif page == "Practice":
     practice_page()
 
 elif page == "AI Assistant":
-    col_title, col_clear = st.columns([4, 1.2])
+    if client is None:
+        st.error("OpenAI API Key is missing. Please add it to your secrets.toml file.")
+        st.stop()
+
+    col_title, col_clear = st.columns([3, 1])
     with col_title:
         st.markdown("""
             <div class='card'>
                 <h1 style='color:#0f766e; margin-bottom:0;'>Sahay AI Assistant</h1>
-                <p style='color:#64748b;'>Ask questions or summarize notes with our emerald-powered AI.</p>
+                <p style='color:#64748b;'>Your emerald-themed learning companion.</p>
             </div>
         """, unsafe_allow_html=True)
     
     with col_clear:
-        # Integrated Ripple Effect into the button container
         st.markdown('<br>', unsafe_allow_html=True)
         if st.button("🗑️ Clear History", use_container_width=True):
             st.session_state.messages = []
@@ -214,7 +216,7 @@ elif page == "AI Assistant":
                 for response in client.chat.completions.create(
                     model="gpt-3.5-turbo", 
                     messages=[
-                        {"role": "system", "content": "You are Sahay AI, a mentor for a peer-learning platform. Be helpful and encouraging."},
+                        {"role": "system", "content": "You are Sahay AI, a helpful mentor for a peer-learning platform."},
                         *[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
                     ],
                     stream=True,
@@ -225,32 +227,7 @@ elif page == "AI Assistant":
                 response_placeholder.markdown(full_response)
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
             except Exception as e:
-                st.error("The AI service is currently unavailable. Please check your API key.")
+                st.error(f"Error: {e}")
 
 elif page == "Donations":
-    st.markdown("<div class='card'><h1 style='color:#0f766e;'>Support Education</h1></div>", unsafe_allow_html=True)
-    
-    donations = [
-        {"name": "Pratham", "url": "https://pratham.org/donation/", "desc": "Closing the literacy gap.", "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>'},
-        {"name": "Akshaya Patra", "url": "https://www.akshayapatra.org/onlinedonations", "desc": "Feeding school children.", "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>'},
-        {"name": "Teach For India", "url": "https://www.teachforindia.org/donate", "desc": "Training future leaders.", "icon": '<svg viewBox="0 0 24 24" width="40" height="40" stroke="#0f766e" stroke-width="2" fill="none"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>'}
-    ]
-
-    for org in donations:
-        st.markdown(f"""
-        <div class="donation-card">
-            <div style="display: flex; align-items: center; gap: 20px; margin-bottom:15px;">
-                <div style="background:#f0fdf4; padding:10px; border-radius:10px;">{org['icon']}</div>
-                <div>
-                    <h3 style="margin:0; color:#0f766e;">{org['name']}</h3>
-                    <p style="margin:0; color:#4b5563; font-size:0.95rem;">{org['desc']}</p>
-                </div>
-            </div>
-            <a href="{org['url']}" target="_blank" class="ripple-btn">Donate Now →</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-elif page == "Admin":
-    key = st.text_input("Admin Access Key", type="password")
-    if key == "ngo-admin-123":
-        admin_page()
+    st.markdown("<div class='card'><h1 style='color:#0f766e;'>Support Education</h1>
