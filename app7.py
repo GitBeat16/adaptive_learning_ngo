@@ -1,5 +1,4 @@
 import streamlit as st
-from datetime import date
 
 # =========================================================
 # PAGE CONFIG (MUST BE FIRST)
@@ -9,25 +8,27 @@ st.set_page_config(
     layout="wide"
 )
 
-# =========================================================
-# IMPORT PAGES
-# =========================================================
+from datetime import date
+
+# ---- IMPORT PAGES (AFTER set_page_config) ----
 from materials import materials_page
 from practice import practice_page
 from admin import admin_page
+from auth import auth_page
+from dashboard import dashboard_page
 from matching import matchmaking_page
 
-# =========================================================
-# DATABASE
-# =========================================================
+# ---- DATABASE ----
+# ❗ DO NOT call init_db() here (already auto-called in database.py)
 from database import init_db
-init_db()
 
 # =========================================================
 # GLOBAL UI STYLES
 # =========================================================
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap');
+
 html, body, [class*="css"] {
     font-family: 'Poppins','Inter','Segoe UI',sans-serif;
 }
@@ -45,6 +46,9 @@ section[data-testid="stSidebar"] {
 .sidebar-header {
   padding:1.4rem;
   border-radius:18px;
+  background:linear-gradient(135deg,#6366f1,#4f46e5);
+  color:white;
+  margin-bottom:1.2rem;
   text-align:center;
 }
 
@@ -55,49 +59,40 @@ section[data-testid="stSidebar"] {
   box-shadow:0 12px 30px rgba(0,0,0,.06);
 }
 
-/* Donate Button */
 .donate-btn {
   display:block;
   width:100%;
   padding:0.9rem 1rem;
-  border-radius:14px;
+  margin-top:1rem;
+  border-radius:999px;
   text-align:center;
   font-weight:700;
   font-size:0.95rem;
   color:#ffffff !important;
-  text-decoration:none !important;
   background:linear-gradient(135deg,#6366f1,#4f46e5);
-  transition:all 0.25s ease;
-}
-
-.donate-btn:hover {
-  transform:translateY(-2px);
-  box-shadow:0 10px 25px rgba(79,70,229,.35);
+  text-decoration:none;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# SESSION STATE DEFAULTS
+# SESSION STATE INIT
 # =========================================================
-defaults = {
-    "authenticated": False,
+for key, default in {
+    "logged_in": False,
     "user_id": None,
-    "user_name": "Guest",
-    "page": "Matchmaking",
-    "current_match": None,
+    "user_name": "",
+    "page": "Dashboard",
     "proposed_match": None,
     "proposed_score": None
-}
-
-for k, v in defaults.items():
-    st.session_state.setdefault(k, v)
+}.items():
+    st.session_state.setdefault(key, default)
 
 # =========================================================
 # AUTH GATE
 # =========================================================
-if not st.session_state.authenticated:
-    st.warning("Please log in to continue.")
+if not st.session_state.logged_in:
+    auth_page()
     st.stop()
 
 # =========================================================
@@ -106,75 +101,52 @@ if not st.session_state.authenticated:
 with st.sidebar:
     st.markdown(f"""
     <div class="sidebar-header">
-        <div style="font-size:2.2rem;font-weight:700;">Sahay</div>
-        <div style="margin-top:0.4rem;font-size:0.95rem;">
+        <div style="font-size:2.4rem;font-weight:700;">Sahay</div>
+        <div style="margin-top:0.45rem;font-size:0.95rem;">
             {st.session_state.user_name}
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    page = st.radio(
-        "Navigate",
-        ["Matchmaking", "Materials", "Practice", "Donations", "Admin"],
-        index=0
-    )
+    for label in [
+        "Dashboard",
+        "Matchmaking",
+        "Learning Materials",
+        "Practice",
+        "Donations",
+        "Admin"
+    ]:
+        if st.button(label, use_container_width=True):
+            st.session_state.page = label
+            st.rerun()
+
+    st.divider()
+
+    if st.button("Logout", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 # =========================================================
-# PAGE ROUTING
+# ROUTING
 # =========================================================
-if page == "Matchmaking":
+page = st.session_state.page
+
+if page == "Dashboard":
+    dashboard_page()
+
+elif page == "Matchmaking":
     matchmaking_page()
 
-elif page == "Materials":
+elif page == "Learning Materials":
     materials_page()
 
 elif page == "Practice":
     practice_page()
 
 elif page == "Donations":
-
-    st.markdown("""
-    <div class="card">
-        <h2>Support Education & Nutrition</h2>
-        <p>Your contribution helps children learn better and stay nourished.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("""
-        <div class="card">
-            <h4>Pratham</h4>
-            <p>Improving foundational learning outcomes.</p>
-            <a class="donate-btn" href="https://pratham.org/donation/" target="_blank">
-                Donate
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="card">
-            <h4>Akshaya Patra</h4>
-            <p>Ensuring no child studies hungry.</p>
-            <a class="donate-btn" href="https://www.akshayapatra.org/onlinedonations" target="_blank">
-                Donate
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="card">
-            <h4>Teach For India</h4>
-            <p>Eliminating educational inequity.</p>
-            <a class="donate-btn" href="https://www.teachforindia.org/donate" target="_blank">
-                Donate
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("<div class='card'><h2>🤝 Support Education</h2></div>", unsafe_allow_html=True)
 
 elif page == "Admin":
     key = st.text_input("Admin Access Key", type="password")
-    admin_page(key)
+    if key == "ngo-admin-123":
+        admin_page()
