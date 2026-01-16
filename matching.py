@@ -8,205 +8,211 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================================================
-# HIGH-FIDELITY EMERALD UI (CSS)
+# PROFESSIONAL EMERALD UI (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* Main Layout Styling */
-    .stApp { background-color: #f9fafb; }
+    /* Main Background */
+    .stApp { background-color: #fcfdfd; }
     
     /* Navigation Sidebar */
     [data-testid="stSidebar"] {
         background-color: #ffffff;
-        border-right: 1px solid #e5e7eb;
+        border-right: 1px solid #e2e8f0;
     }
 
-    /* Fixed-Height Chat Window */
-    .chat-view {
+    /* Professional Chat Box */
+    .chat-wrapper {
         background-color: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
         padding: 20px;
-        height: 550px;
+        height: 500px;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        gap: 10px;
     }
 
-    /* Message Bubble Logic */
-    .msg-group { display: flex; flex-direction: column; width: 100%; margin-bottom: 8px; }
+    /* Message Bubbles */
+    .message-row { display: flex; flex-direction: column; width: 100%; margin-bottom: 5px; }
     
     .bubble {
-        padding: 10px 16px;
-        border-radius: 18px;
+        padding: 12px 16px;
+        border-radius: 12px;
         font-size: 0.95rem;
-        max-width: 80%;
+        max-width: 75%;
         line-height: 1.5;
-        position: relative;
     }
     
-    .user-msg {
-        background-color: #059669;
+    .user-style {
+        background-color: #059669; /* Emerald 600 */
         color: #ffffff;
         align-self: flex-end;
-        border-bottom-right-radius: 4px;
+        border-bottom-right-radius: 2px;
     }
     
-    .partner-msg {
-        background-color: #f3f4f6;
-        color: #111827;
+    .partner-style {
+        background-color: #f1f5f9;
+        color: #1e293b;
         align-self: flex-start;
-        border-bottom-left-radius: 4px;
-        border: 1px solid #e5e7eb;
+        border-bottom-left-radius: 2px;
+        border: 1px solid #e2e8f0;
     }
 
-    .sender-tag {
-        font-size: 0.7rem;
+    .label-text {
+        font-size: 0.75rem;
         font-weight: 600;
-        margin-bottom: 2px;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        margin-bottom: 3px;
+        color: #64748b;
     }
-    .user-tag { align-self: flex-end; color: #059669; }
+    .user-label { align-self: flex-end; color: #059669; }
 
-    /* Button and Input Styling */
+    /* Emerald Button Customization */
     div.stButton > button {
         background-color: #059669;
         color: white;
         border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        width: 100%;
-        transition: all 0.2s;
+        border-radius: 6px;
+        font-weight: 500;
+        transition: background 0.3s ease;
     }
     div.stButton > button:hover {
         background-color: #047857;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# SYSTEM HELPERS
+# STATE INITIALIZATION (Critical Fix)
 # =========================================================
-def now(): return int(time.time())
+def ensure_state():
+    """Ensures all keys exist to prevent AttributeError."""
+    keys = {
+        "chat_log": [],
+        "last_ts": 0,
+        "ai_history": [],
+        "current_match_id": None,
+        "user_id": st.session_state.get("user_id", None),
+        "user_name": st.session_state.get("user_name", "User")
+    }
+    for key, default in keys.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
 
-def init_state():
-    if "chat_log" not in st.session_state: st.session_state.chat_log = []
-    if "last_ts" not in st.session_state: st.session_state.last_ts = 0
-    if "ai_history" not in st.session_state: st.session_state.ai_history = []
-    if "current_match_id" not in st.session_state: st.session_state.current_match_id = None
+# Call this at the top level
+ensure_state()
 
 def reset_session():
-    conn.execute("UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?", (st.session_state.user_id,))
-    conn.commit()
-    for key in ["current_match_id", "chat_log", "last_ts"]:
-        st.session_state[key] = None if key != "chat_log" else []
+    if st.session_state.current_match_id:
+        conn.execute("UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?", (st.session_state.user_id,))
+        conn.commit()
+    st.session_state.current_match_id = None
+    st.session_state.chat_log = []
+    st.session_state.last_ts = 0
     st.rerun()
 
-init_state()
-
 # =========================================================
-# SIDEBAR NAVIGATION & AI
+# SIDEBAR - AI ASSISTANT
 # =========================================================
 with st.sidebar:
-    st.markdown("### Navigation")
-    if st.button("Return to Dashboard"):
-        st.switch_page("app.py")
-    
-    st.divider()
     st.markdown("### Study Assistant")
     with st.container():
-        query = st.text_input("AI Query", placeholder="Ask anything...", key="sidebar_ai", label_visibility="collapsed")
-        if st.button("Ask Assistant") and query:
-            res = ask_ai(query)
-            st.session_state.ai_history.append((query, res))
+        ai_in = st.text_input("Ask AI", placeholder="Concept explanation...", key="side_ai_input", label_visibility="collapsed")
+        if st.button("Query Assistant", use_container_width=True) and ai_in:
+            with st.spinner("Processing..."):
+                response = ask_ai(ai_in)
+                st.session_state.ai_history.append((ai_in, response))
     
-    for q_h, a_h in reversed(st.session_state.ai_history[-3:]):
-        with st.expander(f"Q: {q_h[:25]}...", expanded=False):
-            st.write(a_h)
+    st.divider()
+    for q, a in reversed(st.session_state.ai_history[-3:]):
+        with st.expander(f"Q: {q[:20]}...", expanded=False):
+            st.write(a)
 
 # =========================================================
-# CHAT RENDERING ENGINE
+# LIVE CHAT ENGINE
 # =========================================================
 @st.fragment(run_every=3)
-def sync_live_chat(match_id):
-    # Polling for new content
-    rows = conn.execute("SELECT sender, message, created_ts FROM messages WHERE match_id=? AND created_ts > ? ORDER BY created_ts ASC", 
-                        (match_id, st.session_state.last_ts)).fetchall()
-    
-    if rows:
-        for s, m, ts in rows:
+def render_live_chat(match_id):
+    # Fetching new messages only
+    new_messages = conn.execute("""
+        SELECT sender, message, created_ts FROM messages 
+        WHERE match_id=? AND created_ts > ? ORDER BY created_ts ASC
+    """, (match_id, st.session_state.last_ts)).fetchall()
+
+    if new_messages:
+        for s, m, ts in new_messages:
             st.session_state.chat_log.append((s, m))
             st.session_state.last_ts = max(st.session_state.last_ts, ts)
 
-    # Render CSS Chat Window
-    st.markdown('<div class="chat-view">', unsafe_allow_html=True)
+    # UI Rendering
+    st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
     for sender, msg in st.session_state.chat_log:
         is_me = (sender == st.session_state.user_name)
-        msg_class = "user-msg" if is_me else "partner-msg"
-        tag_class = "user-tag" if is_me else ""
+        b_class = "user-style" if is_me else "partner-style"
+        l_class = "user-label" if is_me else ""
         label = "You" if is_me else sender
         
         st.markdown(f"""
-            <div class="msg-group">
-                <div class="sender-tag {tag_class}">{label}</div>
-                <div class="bubble {msg_class}">{msg}</div>
+            <div class="message-row">
+                <div class="label-text {l_class}">{label}</div>
+                <div class="bubble {b_class}">{msg}</div>
             </div>
         """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# MAIN APP LOGIC
+# MAIN APP VIEW
 # =========================================================
 def matchmaking_page():
+    # Final safety check
+    ensure_state()
+    
     if not st.session_state.current_match_id:
-        # Check for background matches
-        check = conn.execute("SELECT match_id FROM profiles WHERE user_id=? AND status='matched'", (st.session_state.user_id,)).fetchone()
-        if check and check[0]:
-            st.session_state.current_match_id = check[0]
+        # Check if match was assigned while waiting
+        sync_check = conn.execute("SELECT match_id FROM profiles WHERE user_id=? AND status='matched'", 
+                                  (st.session_state.user_id,)).fetchone()
+        if sync_check and sync_check[0]:
+            st.session_state.current_match_id = sync_check[0]
             st.rerun()
 
-        st.title("Peer Matchmaking")
-        st.write("Join a session to collaborate with other students in real-time.")
+        st.title("Collaborative Learning")
+        st.markdown("Connect with available peers for synchronized study sessions.")
         
-        if st.button("Find Active Partner", use_container_width=True):
-            res = conn.execute("SELECT p.user_id, a.name FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.status='waiting' AND p.user_id!=?", (st.session_state.user_id,)).fetchone()
-            if res:
-                mid = f"chat_{min(st.session_state.user_id, res[0])}_{now()}"
-                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id IN (?,?)", (mid, st.session_state.user_id, res[0]))
+        if st.button("Initialize Matchmaking", use_container_width=True):
+            peer = conn.execute("SELECT p.user_id, a.name FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.status='waiting' AND p.user_id!=?", (st.session_state.user_id,)).fetchone()
+            if peer:
+                m_id = f"session_{min(st.session_state.user_id, peer[0])}_{int(time.time())}"
+                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id IN (?,?)", (m_id, st.session_state.user_id, peer[0]))
                 conn.commit()
-                st.session_state.current_match_id = mid
+                st.session_state.current_match_id = m_id
                 st.rerun()
             else:
-                st.info("Waiting for a compatible peer to join...")
+                st.info("System is searching for active peers. Please maintain this connection.")
     
     else:
-        # Session Header
-        top_l, top_r = st.columns([4, 1])
-        top_l.subheader("Live Study Room")
-        if top_r.button("End Session"):
+        # Active Session UI
+        header_l, header_r = st.columns([5, 1])
+        header_l.subheader("Synchronized Session")
+        if header_r.button("Terminate"):
             reset_session()
 
-        # Chat Window Fragment
-        sync_live_chat(st.session_state.current_match_id)
+        # Chat Window
+        render_live_chat(st.session_state.current_match_id)
         
-        # Bottom Control Bar
+        # Unified Input Footer
         st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
-            col_msg, col_file, col_btn = st.columns([5, 1, 1])
-            with col_msg:
-                m_txt = st.text_input("Text Message", placeholder="Share your thoughts...", label_visibility="collapsed", key="main_input")
-            with col_file:
+            input_col, file_col, send_col = st.columns([4, 1, 1])
+            with input_col:
+                message_text = st.text_input("Message", placeholder="Discuss your topic...", label_visibility="collapsed", key="chat_input_field")
+            with file_col:
                 st.file_uploader("Upload", label_visibility="collapsed")
-            with col_btn:
+            with send_col:
                 if st.button("Send", use_container_width=True):
-                    if m_txt:
+                    if message_text:
                         conn.execute("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)", 
-                                     (st.session_state.current_match_id, st.session_state.user_name, m_txt, now()))
+                                     (st.session_state.current_match_id, st.session_state.user_name, message_text, int(time.time())))
                         conn.commit()
                         st.rerun()
 
