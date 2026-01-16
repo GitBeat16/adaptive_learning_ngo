@@ -4,6 +4,7 @@ import os
 import json
 import sqlite3
 import requests
+import re  # Added for robust AI response parsing
 from database import DB_PATH
 from ai_helper import ask_ai
 from streamlit_lottie import st_lottie
@@ -77,6 +78,11 @@ def inject_emerald_theme():
             font-weight: 700 !important;
             height: 3em;
             width: 100%;
+            transition: all 0.3s ease;
+        }
+        div.stButton > button:hover {
+            background-color: #059669 !important;
+            transform: translateY(-2px);
         }
         .chat-scroll { background: #ecfdf5 !important; border: 1px solid #d1fae5 !important; border-radius: 12px; padding: 15px; height: 350px; overflow-y: auto; margin-bottom: 20px; }
         .bubble { padding: 10px 15px; border-radius: 15px; margin-bottom: 10px; max-width: 80%; }
@@ -190,14 +196,47 @@ def show_rating():
             msgs = run_query("SELECT sender, message FROM messages WHERE match_id=?", (st.session_state.current_match_id,), fetchall=True)
             transcript = "\n".join([f"{m['sender']}: {m['message']}" for m in msgs]) if msgs else "No data."
             
-            prompt = f"Analyze: {transcript}\n\nTasks:\n1. 3-bullet summary.\n2. 3 MCQs JSON.\nFormat: SUMMARY: [text] QUIZ_JSON: [json]"
+            # GEMINI OPTIMIZED PROMPT
+            prompt = f"""
+            Task: Analyze this study session transcript between two students.
+            Transcript: {transcript}
+
+            Instructions:
+            1. Provide a 3-bullet point summary of the topics discussed.
+            2. Create 3 multiple choice questions based on the content.
+
+            Format Requirements:
+            SUMMARY_START
+            [Your 3 bullet points]
+            SUMMARY_END
+
+            QUIZ_START
+            [
+              {{"question": "...", "options": ["...", "..."], "answer": "..."}},
+              ...
+            ]
+            QUIZ_END
+            """
+            
             try:
                 full_res = ask_ai(prompt)
-                st.session_state.session_summary = full_res.split("QUIZ_JSON:")[0].replace("SUMMARY:", "").strip()
-                json_part = full_res.split("QUIZ_JSON:")[1].strip()
-                st.session_state.quiz_data = json.loads(json_part[json_part.find('['):json_part.rfind(']')+1])
-            except:
-                st.session_state.session_summary = "Session concluded successfully."
+                
+                # Robust extraction for Summary
+                if "SUMMARY_START" in full_res:
+                    st.session_state.session_summary = full_res.split("SUMMARY_START")[1].split("SUMMARY_END")[0].strip()
+                else:
+                    st.session_state.session_summary = "Session concluded successfully."
+
+                # Robust extraction for JSON Quiz
+                json_pattern = re.compile(r'\[\s*\{.*\}\s*\]', re.DOTALL)
+                match = json_pattern.search(full_res)
+                if match:
+                    st.session_state.quiz_data = json.loads(match.group())
+                else:
+                    st.session_state.quiz_data = []
+
+            except Exception as e:
+                st.session_state.session_summary = "AI processing failed. Please check connection."
                 st.session_state.quiz_data = []
         
         st.session_state.session_step = "quiz"
@@ -215,7 +254,7 @@ def show_quiz():
     
     quiz = st.session_state.get('quiz_data', [])
     if not quiz:
-        st.write("Verification data unavailable.")
+        st.write("Verification data unavailable or quota reached.")
         if st.button("Complete"): st.session_state.quiz_done = True
     else:
         with st.form("quiz_form"):
@@ -232,7 +271,7 @@ def show_quiz():
         if st.button("Return to Discovery Mode"):
             run_query("UPDATE profiles SET status='active', match_id=NULL, accepted=0 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.session_state.session_step = "discovery"
-            for key in ['session_summary', 'quiz_data', 'quiz_done']:
+            for key in ['session_summary', 'quiz_data', 'quiz_done', 'peer_info', 'current_match_id']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
