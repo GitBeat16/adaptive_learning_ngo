@@ -8,187 +8,192 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================================================
-# STYLING & THEME
+# EMERALD WHATSAPP THEME (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* Main Layout Refinement */
-    .stApp { background-color: #fcfdfd; }
+    /* Main Layout */
+    .stApp { background-color: #f0f2f5; }
     
-    /* Emerald Minimalist Buttons */
-    div.stButton > button {
-        background-color: #059669;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 0.6rem 1rem;
-        font-weight: 500;
-        transition: all 0.2s ease-in-out;
+    /* WhatsApp Style Chat Container */
+    .chat-window {
+        background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        background-repeat: repeat;
+        padding: 20px;
+        border-radius: 10px;
+        height: 70vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
     }
-    div.stButton > button:hover {
-        background-color: #047857;
-        box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
-        transform: translateY(-1px);
-    }
-    
-    /* Chat UI - Modern Bubbles */
-    .chat-container {
-        padding: 1.5rem;
-        background: white;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 1rem;
-    }
+
+    /* Message Bubbles */
     .bubble {
-        margin-bottom: 1rem;
-        padding: 0.8rem 1rem;
-        border-radius: 12px;
-        max-width: 85%;
+        max-width: 70%;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        border-radius: 8px;
         font-size: 0.95rem;
-        line-height: 1.5;
+        position: relative;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.1);
     }
     .user-bubble {
-        background-color: #f1f5f9;
-        color: #334155;
-        margin-left: auto;
-        border-bottom-right-radius: 2px;
+        background-color: #dcf8c6;
+        align-self: flex-end;
+        border-top-right-radius: 0;
     }
     .partner-bubble {
-        background-color: #ecfdf5;
-        color: #065f46;
-        margin-right: auto;
-        border-bottom-left-radius: 2px;
-        border-left: 4px solid #10b981;
+        background-color: #ffffff;
+        align-self: flex-start;
+        border-top-left-radius: 0;
     }
-    .meta-text {
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        margin-bottom: 4px;
-        letter-spacing: 0.05em;
+    .msg-meta { font-size: 0.7rem; color: #667781; margin-bottom: 2px; font-weight: bold; }
+
+    /* Bottom Input Bar */
+    .input-container {
+        background-color: #f0f2f5;
+        padding: 10px;
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+    }
+
+    /* Emerald Buttons */
+    div.stButton > button {
+        background-color: #06d755;
+        color: white;
+        border: none;
+        border-radius: 20px;
+        transition: 0.3s;
+    }
+    div.stButton > button:hover {
+        background-color: #05bc4a;
+        transform: scale(1.05);
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# STATE MANAGEMENT
+# CORE LOGIC
 # =========================================================
 def init_state():
-    if "chat_log" not in st.session_state:
-        st.session_state.chat_log = []
-    if "last_msg_ts" not in st.session_state:
-        st.session_state.last_msg_ts = 0
-    if "current_match_id" not in st.session_state:
-        st.session_state.current_match_id = None
+    if "chat_log" not in st.session_state: st.session_state.chat_log = []
+    if "last_msg_ts" not in st.session_state: st.session_state.last_msg_ts = 0
+    if "ai_history" not in st.session_state: st.session_state.ai_history = []
 
-def reset_matchmaking():
-    conn.execute("UPDATE profiles SET status='waiting', match_id=None WHERE user_id=?", (st.session_state.user_id,))
+def reset_session():
+    conn.execute("UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?", (st.session_state.user_id,))
     conn.commit()
-    st.session_state.current_match_id = None
-    st.session_state.chat_log = []
+    for key in ["current_match_id", "chat_log", "last_msg_ts", "proposed_match"]:
+        if key in st.session_state: del st.session_state[key]
     st.rerun()
 
 # =========================================================
-# LIVE CHAT FRAGMENT (Optimized Performance)
+# NAVIGATION (AI CHATBOT)
+# =========================================================
+with st.sidebar:
+    st.title("Study Sidebar")
+    st.markdown("### 🤖 AI Assistant")
+    with st.container(border=True):
+        ai_query = st.text_input("Ask AI anything...", key="sidebar_ai_input")
+        if st.button("Get AI Help") and ai_query:
+            answer = ask_ai(ai_query)
+            st.session_state.ai_history.append((ai_query, answer))
+        
+        for q, a in reversed(st.session_state.ai_history[-3:]):
+            st.markdown(f"**Q:** {q}")
+            st.markdown(f"**A:** {a}")
+            st.divider()
+
+# =========================================================
+# LIVE CHAT REFRESH SYSTEM
 # =========================================================
 @st.fragment(run_every=3)
-def live_chat_fragment(match_id):
-    """Refreshes only the chat window every 3s without reloading the whole page."""
-    # Fetch new messages
-    new_rows = conn.execute("""
-        SELECT sender, message, created_ts FROM messages 
-        WHERE match_id=? AND created_ts > ? ORDER BY created_ts ASC
-    """, (match_id, st.session_state.last_msg_ts)).fetchall()
+def sync_chat(match_id):
+    # Fetch all history if log is empty, else fetch new
+    query = "SELECT sender, message, created_ts FROM messages WHERE match_id=? AND created_ts > ? ORDER BY created_ts ASC"
+    rows = conn.execute(query, (match_id, st.session_state.last_msg_ts)).fetchall()
 
-    if new_rows:
-        for s, m, ts in new_rows:
+    if rows:
+        for s, m, ts in rows:
             st.session_state.chat_log.append((s, m))
             st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
 
-    # Display Chat
+    # Render WhatsApp style bubbles
+    st.markdown('<div class="chat-window">', unsafe_allow_html=True)
     for sender, msg in st.session_state.chat_log:
         is_me = (sender == st.session_state.user_name)
-        b_class = "user-bubble" if is_me else "partner-bubble"
-        label = "You" if is_me else sender
-        
+        css = "user-bubble" if is_me else "partner-bubble"
+        name = "You" if is_me else sender
         st.markdown(f"""
-            <div class="bubble {b_class}">
-                <div class="meta-text">{label}</div>
+            <div class="bubble {css}">
+                <div class="msg-meta">{name}</div>
                 {msg}
             </div>
         """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# MAIN LOGIC
+# MAIN APP FLOW
 # =========================================================
 def matchmaking_page():
     init_state()
     
-    # 1. SEARCHING PHASE
-    if not st.session_state.current_match_id:
-        st.subheader("Partner Matchmaking")
+    # PHASE 1: SEARCHING
+    if not st.session_state.get("current_match_id"):
+        st.header("Find Study Partner")
         
-        # Check if someone matched us
+        # Check if someone else initiated a match
         row = conn.execute("SELECT match_id FROM profiles WHERE user_id=? AND status='matched'", (st.session_state.user_id,)).fetchone()
         if row:
             st.session_state.current_match_id = row[0]
             st.rerun()
 
-        st.info("Searching for an available study partner...")
-        if st.button("Find Partner"):
+        if st.button("Search for Partner", use_container_width=True):
             res = conn.execute("SELECT p.user_id, a.name FROM profiles p JOIN auth_users a ON a.id=p.user_id WHERE p.status='waiting' AND p.user_id!=?", (st.session_state.user_id,)).fetchone()
             if res:
                 target_id, target_name = res
                 mid = f"chat_{min(st.session_state.user_id, target_id)}_{int(time.time())}"
-                
-                # Double handshake update
-                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id=?", (mid, st.session_state.user_id))
-                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id=?", (mid, target_id))
+                conn.execute("UPDATE profiles SET status='matched', match_id=? WHERE user_id IN (?,?)", (mid, st.session_state.user_id, target_id))
                 conn.commit()
-                
                 st.session_state.current_match_id = mid
                 st.balloons()
                 st.rerun()
             else:
-                st.warning("No partners available. Please stay on this page to remain visible to others.")
+                st.info("Searching for peers...")
 
-    # 2. LIVE SESSION PHASE
+    # PHASE 2: LIVE CHAT (WHATSAPP DESIGN)
     else:
-        st.markdown(f"### Study Session: {st.session_state.user_name}")
-        
-        col_chat, col_tools = st.columns([2.5, 1], gap="large")
-        
-        with col_chat:
-            with st.container(border=True):
-                live_chat_fragment(st.session_state.current_match_id)
+        # Header
+        col_title, col_exit = st.columns([4, 1])
+        col_title.subheader(f"Study Session")
+        if col_exit.button("End Session"):
+            # Generate summary and quiz logic (previous features)
+            st.session_state.summary = ask_ai("Summarize chat: " + str(st.session_state.chat_log))
+            st.session_state.quiz = ask_ai("Create 3 MCQs: " + str(st.session_state.chat_log))
+            reset_session()
+
+        # Chat Window
+        sync_chat(st.session_state.current_match_id)
+
+        # Input Area (WhatsApp style combined bar)
+        with st.container():
+            col_up, col_in, col_btn = st.columns([1, 4, 1])
             
-            with st.form("send_form", clear_on_submit=True):
-                msg = st.text_input("Message", placeholder="Discuss your topic...", label_visibility="collapsed")
-                if st.form_submit_button("Send Message"):
-                    if msg:
+            with col_up:
+                uploaded_file = st.file_uploader("📎", label_visibility="collapsed")
+                if uploaded_file:
+                    st.toast("File Attached")
+
+            with col_in:
+                msg_input = st.text_input("Type a message", placeholder="Message", label_visibility="collapsed", key="chat_in")
+
+            with col_btn:
+                if st.button("Send"):
+                    if msg_input:
                         conn.execute("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)",
-                                     (st.session_state.current_match_id, st.session_state.user_name, msg, int(time.time())))
+                                     (st.session_state.current_match_id, st.session_state.user_name, msg_input, int(time.time())))
                         conn.commit()
                         st.rerun()
-
-        with col_tools:
-            st.markdown("#### Resources")
-            up = st.file_uploader("Upload File", label_visibility="collapsed")
-            if up:
-                st.success("File shared!")
-            
-            st.divider()
-            
-            # AI Assistant Quick-Access
-            st.markdown("#### AI Help")
-            ai_q = st.text_input("Ask AI", label_visibility="collapsed", placeholder="Explain...")
-            if st.button("Get Answer"):
-                st.info(ask_ai(ai_q))
-
-            st.divider()
-            if st.button("End & Quiz", use_container_width=True):
-                # Generate Quiz Logic here
-                st.session_state.finished = True
-                st.rerun()
 
 matchmaking_page()
