@@ -4,7 +4,12 @@ import os
 import json
 import sqlite3
 import requests
-from database import DB_PATH  # Ensure your database.py exports the path to the .db file
+# Fallback check for DB_PATH to prevent ImportError
+try:
+    from database import DB_PATH
+except ImportError:
+    DB_PATH = "learning_app.db" 
+
 from ai_helper import ask_ai
 from streamlit_lottie import st_lottie
 
@@ -21,7 +26,8 @@ def get_db_connection():
 
 def run_query(query, params=(), fetchone=False, fetchall=False, commit=False):
     """Execute SQL safely within Streamlit's threaded environment."""
-    with get_db_connection() as conn:
+    conn = get_db_connection()
+    try:
         cursor = conn.cursor()
         cursor.execute(query, params)
         if commit:
@@ -30,6 +36,8 @@ def run_query(query, params=(), fetchone=False, fetchall=False, commit=False):
             return cursor.fetchone()
         if fetchall:
             return cursor.fetchall()
+    finally:
+        conn.close()
 
 # =========================================================
 # ASSETS & UI
@@ -82,7 +90,7 @@ def show_discovery():
     lottie_data = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
     if lottie_data: st_lottie(lottie_data, height=200)
 
-    st.write("Searching for compatible nodes...")
+    st.write("Scanning for compatible nodes...")
     
     if st.button("Initiate Scan"):
         peer = run_query("""
@@ -125,7 +133,7 @@ def show_confirmation():
         if st.button("Establish Link"):
             run_query("UPDATE profiles SET accepted=1 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.rerun()
-        if st.button("Reject"):
+        if st.button("Abort"):
             run_query("UPDATE profiles SET status='active', match_id=NULL, accepted=0 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.session_state.session_step = "discovery"
             st.rerun()
@@ -149,7 +157,7 @@ def show_live_session():
     render_live_chat()
 
     msg = st.text_input("Data Entry", key="chat_input", label_visibility="collapsed")
-    if st.button("Transmit"):
+    if st.button("Transmit Data"):
         if msg:
             run_query("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)",
                      (st.session_state.current_match_id, st.session_state.user_name, msg, int(time.time())), commit=True)
@@ -208,7 +216,7 @@ def show_quiz():
                 st.session_state.quiz_done = True
 
     if st.session_state.get('quiz_done'):
-        if st.button("Back to Discovery"):
+        if st.button("Back to Discovery Mode"):
             run_query("UPDATE profiles SET status='active', match_id=NULL, accepted=0 WHERE user_id=?", (st.session_state.user_id,), commit=True)
             st.session_state.session_step = "discovery"
             st.rerun()
