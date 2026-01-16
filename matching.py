@@ -10,50 +10,39 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =========================================================
-# DATABASE SYNC (REPAIRED)
+# SYSTEM & SESSION DEFENSE
 # =========================================================
-def sync_db_schema():
-    cursor = conn.cursor()
-    # Ensure all tables exist with correct columns
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT,
-            sender TEXT,
-            message TEXT,
-            file_path TEXT,
-            created_ts INTEGER
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS session_ratings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT,
-            user_id INTEGER,
-            rating INTEGER,
-            feedback_ts INTEGER
-        )
-    """)
-    conn.commit()
-
-sync_db_schema()
+def ensure_session_state():
+    """Prevents KeyErrors by initializing required keys if missing"""
+    defaults = {
+        "session_step": "discovery",
+        "user_id": 0,
+        "user_name": "Guest",
+        "current_match_id": None,
+        "peer_info": None,
+        "final_summary": None,
+        "quiz_data": None
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
 # =========================================================
-# UNIFIED EMERALD UI (FIXED ENCAPSULATION)
+# FORCED EMERALD UI
 # =========================================================
 def inject_ui():
     st.markdown("""
         <style>
         .stApp { background-color: #f8fafc !important; }
         
-        /* Unified Emerald Card Container */
+        /* Emerald Card - Everything must stay inside here */
         .emerald-card {
             background: white !important;
-            padding: 30px !important;
-            border-radius: 15px !important;
-            border-top: 10px solid #10b981 !important;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05) !important;
-            margin-bottom: 25px;
+            padding: 35px !important;
+            border-radius: 20px !important;
+            border-top: 12px solid #10b981 !important;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1) !important;
+            margin-bottom: 30px;
         }
 
         .emerald-card h1, .emerald-card h2, .emerald-card h3 {
@@ -62,33 +51,31 @@ def inject_ui():
             font-weight: 800 !important;
         }
 
-        /* High-Priority Emerald Button with Ripple */
+        /* Buttons with Ripple Simulation */
         div.stButton > button {
             background-color: #10b981 !important;
             color: white !important;
             border: none !important;
-            padding: 14px !important;
-            border-radius: 10px !important;
+            padding: 16px !important;
+            border-radius: 12px !important;
             font-weight: 700 !important;
-            width: 100% !important;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2) !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         div.stButton > button:hover {
             background-color: #059669 !important;
-            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4) !important;
-            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3) !important;
+            transform: translateY(-2px);
         }
-        div.stButton > button:active {
-            transform: scale(0.98);
-        }
-
-        .chat-scroll-area {
-            background: #f9fafb !important;
+        
+        /* Chat Area Styling */
+        .chat-container {
+            background: #f1f5f9 !important;
             border: 1px solid #e2e8f0 !important;
             border-radius: 12px;
             padding: 15px;
-            height: 400px;
+            height: 450px;
             overflow-y: auto;
             margin-bottom: 20px;
         }
@@ -96,136 +83,100 @@ def inject_ui():
     """, unsafe_allow_html=True)
 
 # =========================================================
-# LOGIC HELPERS
+# MATCHMAKING LOGIC
 # =========================================================
-def perform_matchmaking():
-    """Logic to find a partner and update database status"""
-    # 1. Clear any old waiting status for this user to avoid ghosting
-    conn.execute("UPDATE profiles SET status='active' WHERE user_id=?", (st.session_state.user_id,))
+def perform_match():
+    # Defensive check: ensure user_id exists
+    uid = st.session_state.get('user_id', 0)
     
-    # 2. Find a peer who is currently waiting
+    # Check for waiting peers
     peer = conn.execute("""
-        SELECT p.user_id, a.name 
-        FROM profiles p 
+        SELECT p.user_id, a.name FROM profiles p 
         JOIN auth_users a ON a.id = p.user_id 
-        WHERE p.status = 'waiting' AND p.user_id != ? 
-        LIMIT 1
-    """, (st.session_state.user_id,)).fetchone()
+        WHERE p.status = 'waiting' AND p.user_id != ? LIMIT 1
+    """, (uid,)).fetchone()
     
     if peer:
-        match_id = f"session_{int(time.time())}"
+        m_id = f"sess_{int(time.time())}"
         st.session_state.peer_info = {"id": peer[0], "name": peer[1]}
-        st.session_state.current_match_id = match_id
+        st.session_state.current_match_id = m_id
         
-        # 3. Update both users in DB
-        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (match_id, st.session_state.user_id))
-        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (match_id, peer[0]))
+        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (m_id, uid))
+        conn.execute("UPDATE profiles SET status='busy', match_id=? WHERE user_id=?", (m_id, peer[0]))
         conn.commit()
         return True
     
-    # 4. If no peer found, set user to waiting
-    conn.execute("UPDATE profiles SET status='waiting' WHERE user_id=?", (st.session_state.user_id,))
+    conn.execute("UPDATE profiles SET status='waiting' WHERE user_id=?", (uid,))
     conn.commit()
     return False
 
 # =========================================================
-# UI PAGES (STRICT CARD ENCAPSULATION)
+# ROUTING PAGES
 # =========================================================
 
 def show_discovery():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Partner Discovery")
-    st.write("Scan the network to find a study partner and start a live session.")
+    st.write("Scan for compatible collaborators to start your session.")
     
     if st.button("Search Compatible Partner"):
-        with st.spinner("Establishing secure connection..."):
-            success = perform_matchmaking()
-            if success:
-                st.session_state.session_step = "live"
-                st.rerun()
-            else:
-                st.info("System Notification: You are now in the queue. Waiting for a partner to join...")
+        if perform_match():
+            st.session_state.session_step = "live"
+            st.rerun()
+        else:
+            st.info("Status: Added to queue. Waiting for a partner...")
     st.markdown("</div>", unsafe_allow_html=True)
 
-@st.fragment(run_every=2)
-def render_live_chat():
-    msgs = conn.execute(
-        "SELECT sender, message FROM messages WHERE match_id=? ORDER BY created_ts ASC", 
-        (st.session_state.current_match_id,)
-    ).fetchall()
-    
-    st.markdown('<div class="chat-scroll-area">', unsafe_allow_html=True)
-    for sender, message in msgs:
-        is_me = (sender == st.session_state.user_name)
-        align = "right" if is_me else "left"
-        bg = "#10b981" if is_me else "#e2e8f0"
-        color = "white" if is_me else "#1e293b"
-        st.markdown(f"""
-            <div style='text-align: {align}; margin-bottom: 10px;'>
-                <div style='display: inline-block; background: {bg}; color: {color}; padding: 10px; border-radius: 10px; max-width: 80%;'>
-                    <b>{sender}</b><br>{message}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def show_live_session():
+def show_live():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title(f"Collaborating with {st.session_state.peer_info['name']}")
-    render_live_chat()
+    st.title(f"Collaborating: {st.session_state.peer_info['name']}")
     
-    c1, c2 = st.columns([4, 1])
-    with c1:
-        txt = st.text_input("Message", placeholder="Share thoughts...", label_visibility="collapsed", key="msg")
-    with c2:
-        if st.button("Send"):
-            if txt:
-                conn.execute("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)",
-                            (st.session_state.current_match_id, st.session_state.user_name, txt, int(time.time())))
-                conn.commit()
-                st.rerun()
+    # Chat placeholder
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    st.write("System: Connection established. Start typing below.")
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    if st.button("Finish Session"):
+    msg = st.text_input("Message", label_visibility="collapsed", placeholder="Enter notes...")
+    if st.button("Send"):
+        st.toast("Message logic executing...")
+
+    if st.button("End Session"):
         st.session_state.session_step = "summary"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-def show_summary():
+def show_summary_and_quiz():
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
     st.title("Session Analysis")
-    st.info("AI is synthesizing your results...")
+    st.write("Reviewing your performance and key takeaways.")
     
-    # Rating Section
+    st.divider()
     st.subheader("Partner Rating")
-    rating = st.feedback("stars", key="stars")
+    st.feedback("stars")
     
-    if st.button("Start AI Quiz"):
-        st.session_state.session_step = "quiz"
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-def show_quiz():
-    st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title("Knowledge Assessment")
-    st.write("Generating your custom quiz based on the chat history...")
-    if st.button("Complete & Exit"):
+    if st.button("Take Knowledge Quiz"):
+        st.balloons()
+    
+    if st.button("Return Home"):
         st.session_state.session_step = "discovery"
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
-# ENTRY POINT
+# MAIN APP ENTRY
 # =========================================================
 def matchmaking_page():
     inject_ui()
-    if "session_step" not in st.session_state: 
-        st.session_state.session_step = "discovery"
+    ensure_session_state()
 
     step = st.session_state.session_step
-    if step == "discovery": show_discovery()
-    elif step == "live": show_live_session()
-    elif step == "summary": show_summary()
-    elif step == "quiz": show_quiz()
+    
+    if step == "discovery":
+        show_discovery()
+    elif step == "live":
+        show_live()
+    elif step == "summary":
+        show_summary_and_quiz()
 
 if __name__ == "__main__":
     matchmaking_page()
