@@ -4,4 +4,5 @@ groq
 streamlit
 openai
 pandas
+streamlit-lottie
 
