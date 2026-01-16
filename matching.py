@@ -11,7 +11,7 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-CHAT_REFRESH_MS = 3000
+POLL_INTERVAL = 3  # seconds
 
 # =========================================================
 # HELPERS
@@ -21,7 +21,6 @@ def now():
 
 def require_login():
     if not st.session_state.get("user_id"):
-        st.info("Please log in to continue.")
         st.stop()
 
 def init_state():
@@ -31,21 +30,28 @@ def init_state():
         "session_ended": False,
         "chat_log": [],
         "last_msg_ts": 0,
+        "last_poll": 0,
         "summary": None,
         "quiz": None,
-        "show_quiz": False,
         "rating_given": False,
-        "refresh_key": 0
+        "ai_chat": [],
+        "refresh_key": 0,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
+def should_poll():
+    return now() - st.session_state.last_poll >= POLL_INTERVAL
+
+def poll():
+    st.session_state.last_poll = now()
+    st.rerun()
+
 def reset_matchmaking():
-    conn.execute("""
-        UPDATE profiles
-        SET status='waiting', match_id=NULL
-        WHERE user_id=?
-    """, (st.session_state.user_id,))
+    conn.execute(
+        "UPDATE profiles SET status='waiting', match_id=NULL WHERE user_id=?",
+        (st.session_state.user_id,)
+    )
     conn.commit()
 
     for k in list(st.session_state.keys()):
@@ -53,6 +59,19 @@ def reset_matchmaking():
             del st.session_state[k]
 
     st.rerun()
+
+# =========================================================
+# AI CHATBOT
+# =========================================================
+def ai_chat_ui():
+    st.subheader("AI Assistant")
+    q = st.text_input("Ask the assistant", key="ai_q")
+    if st.button("Send to AI") and q:
+        st.session_state.ai_chat.append((q, ask_ai(q)))
+
+    for q, a in st.session_state.ai_chat[-5:]:
+        st.markdown(f"**You:** {q}")
+        st.markdown(f"**AI:** {a}")
 
 # =========================================================
 # MATCHING
@@ -81,15 +100,15 @@ def load_waiting_profiles():
     return users
 
 def compatibility(a, b):
-    score = 0
-    score += len(set(a["weak"]) & set(b["strong"])) * 25
-    score += len(set(b["weak"]) & set(a["strong"])) * 25
+    s = 0
+    s += len(set(a["weak"]) & set(b["strong"])) * 25
+    s += len(set(b["weak"]) & set(a["strong"])) * 25
     if a["grade"] == b["grade"]:
-        score += 10
+        s += 10
     if a["time"] == b["time"]:
-        score += 10
-    score += random.randint(0, 5)
-    return score
+        s += 10
+    s += random.randint(0, 5)
+    return s
 
 def find_best_match(current):
     best, best_score = None, -1
@@ -115,13 +134,13 @@ def fetch_messages(match_id):
         st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
 
 # =========================================================
-# UI COMPONENTS
+# STAR RATING
 # =========================================================
-def star_rating_ui():
+def star_rating():
     st.write("Rate your mentor")
     cols = st.columns(5)
     for i in range(5):
-        if cols[i].button("★", key=f"rate_{i}"):
+        if cols[i].button("★", key=f"star_{i}"):
             return i + 1
     return None
 
@@ -133,6 +152,9 @@ def matchmaking_page():
     init_state()
 
     st.markdown("## Study Matchmaking")
+
+    ai_chat_ui()
+    st.divider()
 
     # ================= MATCHING =================
     if not st.session_state.confirmed:
@@ -159,16 +181,18 @@ def matchmaking_page():
 
             if st.button("Connect"):
                 match_id = f"{st.session_state.user_id}_{best['user_id']}_{now()}"
+
                 conn.execute("""
                     UPDATE profiles SET status='matched', match_id=?
                     WHERE user_id IN (?,?)
                 """, (match_id, st.session_state.user_id, best["user_id"]))
+
                 conn.execute("""
                     INSERT INTO sessions(match_id, user1_id, user2_id, started_at)
                     VALUES (?,?,?,?)
                 """, (match_id, st.session_state.user_id, best["user_id"], now()))
-                conn.commit()
 
+                conn.commit()
                 st.session_state.current_match_id = match_id
                 st.session_state.confirmed = True
                 st.rerun()
@@ -177,10 +201,11 @@ def matchmaking_page():
         return
 
     # ================= LIVE SESSION =================
-    st.autorefresh(interval=CHAT_REFRESH_MS, key="chat_refresh")
-    fetch_messages(st.session_state.current_match_id)
+    if should_poll():
+        fetch_messages(st.session_state.current_match_id)
+        poll()
 
-    st.markdown("### Live chat")
+    st.subheader("Live chat")
     for s, m in st.session_state.chat_log[-50:]:
         st.write(f"{s}: {m}")
 
@@ -194,7 +219,6 @@ def matchmaking_page():
         st.rerun()
 
     # ================= FILE UPLOAD =================
-    st.markdown("### Shared files")
     f = st.file_uploader("Upload file")
     if f:
         path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
@@ -210,9 +234,10 @@ def matchmaking_page():
 
     # ================= END SESSION =================
     if st.button("End session"):
-        conn.execute("""
-            UPDATE sessions SET ended_at=? WHERE match_id=?
-        """, (now(), st.session_state.current_match_id))
+        conn.execute(
+            "UPDATE sessions SET ended_at=? WHERE match_id=?",
+            (now(), st.session_state.current_match_id)
+        )
         conn.commit()
 
         chat_text = "\n".join([m for _, m in st.session_state.chat_log])
@@ -228,11 +253,11 @@ def matchmaking_page():
 
     # ================= POST SESSION =================
     if st.session_state.session_ended:
-        st.markdown("### Session summary")
+        st.subheader("Session summary")
         st.write(st.session_state.summary)
 
         if not st.session_state.rating_given:
-            rating = star_rating_ui()
+            rating = star_rating()
             if rating:
                 conn.execute("""
                     INSERT INTO session_ratings(match_id, rater_id, rater_name, rating)
@@ -247,7 +272,7 @@ def matchmaking_page():
                 st.session_state.rating_given = True
                 st.success("Rating saved")
 
-        st.markdown("### Session quiz")
+        st.subheader("Session quiz")
         st.text(st.session_state.quiz)
 
         if st.button("Back to matchmaking"):
