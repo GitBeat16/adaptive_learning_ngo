@@ -17,56 +17,65 @@ def load_lottieurl(url: str):
 def inject_emerald_streak_styles():
     st.markdown("""
         <style>
-        /* Container with improved visibility and contrast */
-        .streak-container {
-            background: #ffffff;
-            padding: 30px;
-            border-radius: 24px;
-            border: 2px solid #ecfdf5;
-            box-shadow: 0 20px 25px -5px rgba(16, 185, 129, 0.1), 0 10px 10px -5px rgba(16, 185, 129, 0.04);
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        
-        /* Large, highly visible streak number */
-        .streak-number {
-            font-size: 4.5rem;
-            font-weight: 900;
-            color: #047857; /* Deep Emerald for visibility */
-            line-height: 1;
-            margin: 5px 0;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.05);
-        }
-        
-        /* Label styling with better letter spacing */
-        .streak-label {
-            color: #064e3b;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            font-size: 0.9rem;
-            margin-bottom: 0px;
+        /* Smooth Fade-in Animation for the whole container */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Level Name text */
+        .streak-container {
+            background: #ffffff;
+            padding: 35px;
+            border-radius: 28px;
+            border: 2px solid #059669; /* Darker border for definition */
+            box-shadow: 0 25px 50px -12px rgba(6, 78, 59, 0.15);
+            text-align: center;
+            margin-bottom: 25px;
+            animation: fadeIn 0.8s ease-out;
+        }
+        
+        /* High Contrast Streak Number */
+        .streak-number {
+            font-size: 5rem;
+            font-weight: 900;
+            color: #064e3b; /* Deepest Forest Green for maximum visibility */
+            line-height: 1;
+            margin: 5px 0;
+            text-shadow: 0px 4px 10px rgba(16, 185, 129, 0.2);
+        }
+        
+        /* Momentum Text - Fixed Visibility */
+        .streak-label {
+            color: #111827; /* Near black/Dark Gray for peak readability */
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-size: 1.1rem;
+            margin-bottom: 2px;
+        }
+
         .level-name {
-            color: #10b981;
+            color: #059669; /* Pure Emerald */
             font-weight: 700;
-            font-size: 1.2rem;
+            font-size: 1.3rem;
+            background: #f0fdf4;
+            display: inline-block;
+            padding: 4px 15px;
+            border-radius: 50px;
             margin-bottom: 15px;
         }
         
-        /* Customizing the Progress Bar color to Emerald Gradient */
+        /* Progress Bar - Emerald Gradient */
         .stProgress > div > div > div > div {
-            background-image: linear-gradient(to right, #6ee7b7, #10b981) !important;
+            background-color: #10b981 !important;
+            background-image: linear-gradient(90deg, #10b981 0%, #059669 100%) !important;
         }
 
-        /* Caption visibility fix */
         .streak-caption {
-            color: #374151;
-            font-weight: 500;
-            font-size: 0.85rem;
-            margin-top: 5px;
+            color: #374151; /* Darker caption text */
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-top: 8px;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -125,13 +134,13 @@ def update_streak():
     return False
 
 # -----------------------------------------------------
-# UI RENDERING (ENHANCED ANIMATED)
+# UI RENDERING (ENHANCED CONTRAST)
 # -----------------------------------------------------
 STREAK_LEVELS = [
-    (0, "Initiating Growth", "https://assets3.lottiefiles.com/packages/lf20_7msh8sn0.json"), 
-    (3, "Vibrant Learner", "https://assets1.lottiefiles.com/private_files/lf30_8ez6ny.json"), 
-    (7, "Study Master", "https://assets1.lottiefiles.com/packages/lf20_08m9ayre.json"), 
-    (14, "Emerald Legend", "https://lottie.host/81a9673d-907a-426c-850d-851f5056804d/5vK5oXpL5I.json") 
+    (0, "Phase: Seedling", "https://assets3.lottiefiles.com/packages/lf20_7msh8sn0.json"), 
+    (3, "Phase: Growing", "https://assets1.lottiefiles.com/private_files/lf30_8ez6ny.json"), 
+    (7, "Phase: Established", "https://assets1.lottiefiles.com/packages/lf20_08m9ayre.json"), 
+    (14, "Phase: Legend", "https://lottie.host/81a9673d-907a-426c-850d-851f5056804d/5vK5oXpL5I.json") 
 ]
 
 def render_streak_ui():
@@ -140,8 +149,8 @@ def render_streak_ui():
     
     streak = st.session_state.streak
     
-    # Logic to select level and animation
-    current_level_name = "Seedling"
+    # Selection logic
+    current_level_name = "Phase: Seedling"
     active_anim_url = STREAK_LEVELS[0][2]
     
     for days, name, url in STREAK_LEVELS:
@@ -151,37 +160,32 @@ def render_streak_ui():
 
     anim_data = load_lottieurl(active_anim_url)
 
-    # Container Start
+    # Main Container
     st.markdown("<div class='streak-container'>", unsafe_allow_html=True)
     
     col1, col2 = st.columns([0.45, 0.55])
     
     with col1:
         if anim_data:
-            st_lottie(anim_data, height=220, key="streak_anim_enhanced", speed=1)
+            st_lottie(anim_data, height=240, key="streak_anim_high_vis", speed=1)
             
     with col2:
-        st.markdown(f"<div class='streak-label'>Current Momentum</div>", unsafe_allow_html=True)
+        # Fixed Visibility Text
+        st.markdown(f"<div class='streak-label'>{streak} Day Momentum</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='streak-number'>{streak}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='level-name'>{current_level_name}</div>", unsafe_allow_html=True)
         
-        # Weekly progress calculation logic
-        # If streak is 0, progress 0. If streak > 0, show remainder of week
+        # Progress Calculation
         weekly_step = streak % 7
-        if streak > 0 and weekly_step == 0:
-            progress_val = 1.0
-        else:
-            progress_val = weekly_step / 7.0
+        progress_val = 1.0 if (streak > 0 and weekly_step == 0) else (weekly_step / 7.0)
             
-        st.progress(max(progress_val, 0.05)) # Small bar even at 0 for visual interest
-        st.markdown(f"<div class='streak-caption'>Syncing Node Progress: {int(progress_val*100)}%</div>", unsafe_allow_html=True)
+        st.progress(max(progress_val, 0.05))
+        st.markdown(f"<div class='streak-caption'>Network Synchronization: {int(progress_val*100)}%</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Status Notification Styling
+    # Status Notification
     if streak == 0:
-        st.info("Your learning sequence is ready to begin. Complete a session to activate growth.")
-    elif streak < 3:
-        st.success("Consistency bridge established. Maintain activity to evolve your node.")
+        st.info("Your streak is inactive. Complete a practice session to begin.")
     else:
-        st.success("High-frequency learning detected. Your Emerald status is currently peak.")
+        st.success(f"System Active. You have maintained a {streak} day connection.")
