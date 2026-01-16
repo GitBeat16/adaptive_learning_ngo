@@ -95,7 +95,7 @@ def show_discovery():
     st.title("Network Discovery")
     lottie_scan = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_6p8ov98e.json")
     if lottie_scan: st_lottie(lottie_scan, height=200, key="scan")
-    st.write("Scanning for active peer nodes...")
+    st.write("Scanning for active peer nodes in the emerald network...")
     
     if st.button("Initiate Discovery Scan"):
         peer = run_query("""
@@ -157,10 +157,10 @@ def render_live_chat():
 def show_live_session():
     inject_emerald_theme()
     st.markdown("<div class='emerald-card'>", unsafe_allow_html=True)
-    st.title(f"Node: {st.session_state.peer_info['name']}")
+    st.title(f"Live Session with: {st.session_state.peer_info['name']}")
     render_live_chat()
     msg = st.text_input("Data Entry", key="chat_input", label_visibility="collapsed")
-    if st.button("Transmit"):
+    if st.button("Transmit Message"):
         if msg:
             run_query("INSERT INTO messages (match_id, sender, message, created_ts) VALUES (?,?,?,?)",
                      (st.session_state.current_match_id, st.session_state.user_name, msg, int(time.time())), commit=True)
@@ -223,25 +223,10 @@ def show_quiz():
             for i, q in enumerate(quiz):
                 st.write(f"**Question {i+1}: {q['question']}**")
                 user_ans.append(st.radio("Select Option", q['options'], key=f"q_{i}"))
-            
-            submitted = st.form_submit_button("Submit Answers")
-
-        if submitted or st.session_state.get('quiz_done'):
-            score = 0
-            st.divider()
-            st.subheader("Results & Corrections")
-            
-            for i, q in enumerate(quiz):
-                is_correct = user_ans[i] == q['answer']
-                if is_correct:
-                    score += 1
-                    st.success(f"Question {i+1}: Correct! (Your answer: {user_ans[i]})")
-                else:
-                    st.error(f"Question {i+1}: Incorrect.")
-                    st.info(f"The correct answer was: **{q['answer']}**")
-            
-            st.metric("Final Score", f"{score} / {len(quiz)}")
-            st.session_state.quiz_done = True
+            if st.form_submit_button("Submit Answers"):
+                score = sum(1 for i, q in enumerate(quiz) if user_ans[i] == q['answer'])
+                st.success(f"Verification Score: {score}/{len(quiz)}")
+                st.session_state.quiz_done = True
 
     if st.session_state.get('quiz_done'):
         if st.button("Return to Discovery Mode"):
