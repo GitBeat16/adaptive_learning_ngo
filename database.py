@@ -1,11 +1,16 @@
 import sqlite3
 import threading
+import os
 
 # =========================================================
-# DATABASE CONNECTION
+# DATABASE CONFIGURATION
 # =========================================================
+DB_PATH = "app.db"
+
+# Global connection used by legacy parts of the app
+# (Newer modules like matching.py use the DB_PATH to create fresh connections)
 conn = sqlite3.connect(
-    "app.db",
+    DB_PATH,
     check_same_thread=False
 )
 cursor = conn.cursor()
@@ -38,7 +43,7 @@ def init_db():
         """)
 
         # -------------------------
-        # PROFILES (UPDATED WITH ACCEPTED COLUMN)
+        # PROFILES (Unified Schema)
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS profiles (
@@ -52,6 +57,8 @@ def init_db():
             status TEXT DEFAULT 'waiting',
             match_id TEXT,
             accepted INTEGER DEFAULT 0,
+            class_level INTEGER,
+            last_seen INTEGER,
             created_at TEXT DEFAULT (datetime('now'))
         )
         """)
@@ -59,18 +66,20 @@ def init_db():
         # -------------------------
         # SAFE MIGRATIONS (PROFILES)
         # -------------------------
-        if not column_exists("profiles", "class_level"):
-            cursor.execute("ALTER TABLE profiles ADD COLUMN class_level INTEGER")
-
-        if not column_exists("profiles", "last_seen"):
-            cursor.execute("ALTER TABLE profiles ADD COLUMN last_seen INTEGER")
-            
-        # FIX FOR MUTUAL CONFIRMATION
-        if not column_exists("profiles", "accepted"):
-            cursor.execute("ALTER TABLE profiles ADD COLUMN accepted INTEGER DEFAULT 0")
+        migrations = [
+            ("class_level", "INTEGER"),
+            ("last_seen", "INTEGER"),
+            ("accepted", "INTEGER DEFAULT 0"),
+            ("match_id", "TEXT"),
+            ("status", "TEXT DEFAULT 'waiting'")
+        ]
+        
+        for col, col_type in migrations:
+            if not column_exists("profiles", col):
+                cursor.execute(f"ALTER TABLE profiles ADD COLUMN {col} {col_type}")
 
         # -------------------------
-        # CHAT MESSAGES (UPDATED WITH FILE_PATH)
+        # CHAT MESSAGES
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -84,58 +93,31 @@ def init_db():
         )
         """)
 
-        # -------------------------
-        # SAFE MIGRATIONS (MESSAGES)
-        # -------------------------
         if not column_exists("messages", "created_ts"):
             cursor.execute("ALTER TABLE messages ADD COLUMN created_ts INTEGER")
-            
-        # FIX FOR FILE SHARING
         if not column_exists("messages", "file_path"):
             cursor.execute("ALTER TABLE messages ADD COLUMN file_path TEXT")
 
         # -------------------------
-        # SESSION FILES (UNCHANGED)
-        # -------------------------
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS session_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT,
-            uploader TEXT,
-            filename TEXT,
-            filepath TEXT,
-            uploaded_at TEXT DEFAULT (datetime('now'))
-        )
-        """)
-
-        # -------------------------
-        # LEGACY RATINGS (KEEP)
-        # -------------------------
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ratings (
-            mentor TEXT,
-            mentee TEXT,
-            rating INTEGER,
-            session_date DATE
-        )
-        """)
-
-        # -------------------------
-        # SESSION RATINGS (UNCHANGED)
+        # SESSION RATINGS (Updated for Partner Feedback)
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS session_ratings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             match_id TEXT,
             rater_id INTEGER,
-            rater_name TEXT,
             rating INTEGER CHECK(rating BETWEEN 1 AND 5),
+            feedback TEXT,
             rated_at TEXT DEFAULT (datetime('now'))
         )
         """)
+        
+        # Migration for feedback column in ratings
+        if not column_exists("session_ratings", "feedback"):
+            cursor.execute("ALTER TABLE session_ratings ADD COLUMN feedback TEXT")
 
         # -------------------------
-        # USER STREAKS (UNCHANGED)
+        # USER STREAKS
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_streaks (
@@ -146,7 +128,7 @@ def init_db():
         """)
 
         # -------------------------
-        # REMATCH REQUESTS (UNCHANGED)
+        # REMATCH REQUESTS
         # -------------------------
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS rematch_requests (
@@ -159,40 +141,10 @@ def init_db():
         """)
 
         # -------------------------
-        # STUDY SESSIONS (UNCHANGED)
-        # -------------------------
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT UNIQUE,
-            user1_id INTEGER,
-            user2_id INTEGER,
-            started_at INTEGER,
-            ended_at INTEGER,
-            summary TEXT
-        )
-        """)
-
-        # -------------------------
-        # SESSION QUIZZES (UNCHANGED)
-        # -------------------------
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS session_quizzes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT,
-            user_id INTEGER,
-            score INTEGER,
-            total INTEGER,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-        """)
-
-        # -------------------------
-        # INDEXES (UNCHANGED)
+        # INDEXES FOR PERFORMANCE
         # -------------------------
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_profiles_match_id ON profiles(match_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_match_id ON messages(match_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_created_ts ON messages(created_ts)")
 
         # -------------------------
         # FINAL COMMIT
@@ -200,6 +152,6 @@ def init_db():
         conn.commit()
 
 # =========================================================
-# AUTO INIT (SAFE)
+# AUTO INIT
 # =========================================================
 init_db()
