@@ -1,16 +1,18 @@
 import streamlit as st
-from openai import OpenAI
+import google.generativeai as genai
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Setup Gemini in the helper file
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except Exception as e:
+    model = None
 
-def ask_ai(question: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a helpful tutor for students."},
-            {"role": "user", "content": question}
-        ],
-        max_tokens=300,
-        temperature=0.4
-    )
-    return response.choices[0].message.content.strip()
+def ask_ai(prompt):
+    if model:
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"AI Error: {str(e)}"
+    return "AI is not configured. Please add GEMINI_API_KEY to secrets."
