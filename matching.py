@@ -5,8 +5,6 @@ import random
 from database import cursor, conn
 from ai_helper import ask_ai
 
-SESSION_TIMEOUT_SEC = 60 * 60
-
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -18,8 +16,6 @@ def now():
 
 def init_state():
     defaults = {
-        "user_id": None,
-        "user_name": "",
         "current_match_id": None,
         "session_start_time": None,
         "session_ended": False,
@@ -30,39 +26,32 @@ def init_state():
         "summary": None,
         "quiz": None,
         "show_quiz": False,
-        "refresh_key": 0,   # 🔄 force re-evaluation
+        "refresh_key": 0,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
-
-def update_last_seen():
-    if st.session_state.user_id:
-        cursor.execute(
-            "UPDATE profiles SET last_seen=? WHERE user_id=?",
-            (now(), st.session_state.user_id)
-        )
-        conn.commit()
 
 def require_login():
     if not st.session_state.user_id:
         st.warning("Please log in to use matchmaking.")
         st.stop()
 
-def reset_matchmaking():
+def update_presence():
     cursor.execute("""
         UPDATE profiles
-        SET status='waiting', match_id=NULL
+        SET last_seen=?, status='waiting', match_id=NULL
         WHERE user_id=?
-    """, (st.session_state.user_id,))
+    """, (now(), st.session_state.user_id))
     conn.commit()
+
+def reset_matchmaking():
+    update_presence()
 
     for k in [
         "current_match_id",
         "session_start_time",
         "session_ended",
         "confirmed",
-        "chat_log",
-        "last_msg_ts",
         "summary",
         "quiz",
         "show_quiz"
@@ -70,25 +59,26 @@ def reset_matchmaking():
         st.session_state[k] = None if k in ["current_match_id", "summary", "quiz"] else False
 
     st.session_state.chat_log = []
+    st.session_state.last_msg_ts = 0
     st.rerun()
 
 # =========================================================
-# MATCHING
+# MATCHING LOGIC
 # =========================================================
 def load_waiting_profiles():
     cursor.execute("""
         SELECT a.id, a.name, p.role, p.grade, p.time,
-               p.strong_subjects, p.weak_subjects, p.last_seen
+               p.strong_subjects, p.weak_subjects,
+               COALESCE(p.last_seen, ?)
         FROM profiles p
         JOIN auth_users a ON a.id=p.user_id
-        WHERE p.status='waiting'
+        WHERE p.user_id!=?
+          AND p.status='waiting'
           AND p.match_id IS NULL
-          AND p.user_id!=?
-    """, (st.session_state.user_id,))
-    rows = cursor.fetchall()
+    """, (now(), st.session_state.user_id))
 
     users = []
-    for r in rows:
+    for r in cursor.fetchall():
         users.append({
             "user_id": r[0],
             "name": r[1],
@@ -97,29 +87,24 @@ def load_waiting_profiles():
             "time": r[4],
             "strong": (r[5] or "").split(","),
             "weak": (r[6] or "").split(","),
-            "last_seen": r[7] or 0
+            "last_seen": r[7]
         })
     return users
 
-def compatibility_score(u1, u2):
+def compatibility_score(a, b):
     s = 0
-    s += len(set(u1["weak"]) & set(u2["strong"])) * 25
-    s += len(set(u2["weak"]) & set(u1["strong"])) * 25
-    if u1["grade"] == u2["grade"]:
+    s += len(set(a["weak"]) & set(b["strong"])) * 25
+    s += len(set(b["weak"]) & set(a["strong"])) * 25
+    if a["grade"] == b["grade"]:
         s += 10
-    if u1["time"] == u2["time"]:
+    if a["time"] == b["time"]:
         s += 10
     return s
 
 def weighted_score(current, candidate):
     base = compatibility_score(current, candidate)
-
-    # ⏱ recent activity bonus (max +10)
     activity_bonus = max(0, 10 - (now() - candidate["last_seen"]) // 30)
-
-    # 🎲 randomness (0–5)
     random_bonus = random.randint(0, 5)
-
     return base + activity_bonus + random_bonus
 
 def find_best_match(current):
@@ -137,13 +122,11 @@ def fetch_new_messages(match_id):
     cursor.execute("""
         SELECT sender, message, COALESCE(created_ts,0)
         FROM messages
-        WHERE match_id=?
-          AND COALESCE(created_ts,0) > ?
+        WHERE match_id=? AND COALESCE(created_ts,0) > ?
         ORDER BY created_ts
     """, (match_id, st.session_state.last_msg_ts))
-    rows = cursor.fetchall()
 
-    for s, m, ts in rows:
+    for s, m, ts in cursor.fetchall():
         st.session_state.chat_log.append((s, m))
         st.session_state.last_msg_ts = max(st.session_state.last_msg_ts, ts)
 
@@ -173,31 +156,24 @@ def generate_quiz(chat):
     )
 
 # =========================================================
-# MAIN
+# MAIN PAGE
 # =========================================================
 def matchmaking_page():
     init_state()
     require_login()
-    update_last_seen()
+    update_presence()
 
     st.title("🤝 Study Matchmaking")
-
     ai_chat_ui()
     st.divider()
 
-    # -----------------------------------------------------
-    # FIND MATCH
-    # -----------------------------------------------------
+    # ================= MATCHING PHASE =================
     if not st.session_state.confirmed:
         cursor.execute("""
             SELECT role, grade, time, strong_subjects, weak_subjects
             FROM profiles WHERE user_id=?
         """, (st.session_state.user_id,))
         r = cursor.fetchone()
-
-        if not r:
-            st.error("Profile not found.")
-            return
 
         current = {
             "user_id": st.session_state.user_id,
@@ -208,19 +184,19 @@ def matchmaking_page():
             "weak": (r[4] or "").split(","),
         }
 
-        colA, colB = st.columns([3, 1])
-        with colB:
+        col1, col2 = st.columns([3, 1])
+        with col2:
             if st.button("🔄 Check Compatible Users"):
                 st.session_state.refresh_key += 1
                 st.rerun()
 
         best, sc = find_best_match(current)
 
-        if best:
+        if best and sc > 0:
             st.subheader("✨ Suggested Match")
             st.write(f"**Name:** {best['name']}")
-            st.write(f"**Role:** {best['role']}")
             st.write(f"**Grade:** {best['grade']}")
+            st.write(f"**Time:** {best['time']}")
             st.write(f"**Compatibility Score:** {sc}")
 
             if st.button("Confirm Match"):
@@ -239,25 +215,22 @@ def matchmaking_page():
 
                 conn.commit()
                 st.session_state.current_match_id = match_id
-                st.session_state.session_start_time = now()
                 st.session_state.confirmed = True
                 st.balloons()
                 st.rerun()
         else:
-            st.info("No compatible users right now. Try again shortly.")
+            st.info("No compatible users right now. Try again.")
 
         return
 
-    # -----------------------------------------------------
-    # ACTIVE SESSION
-    # -----------------------------------------------------
+    # ================= ACTIVE SESSION =================
     fetch_new_messages(st.session_state.current_match_id)
 
     st.subheader("💬 Live Chat")
     for s, m in st.session_state.chat_log[-40:]:
         st.markdown(f"**{s}:** {m}")
 
-    msg = st.text_input("Message", key="msg")
+    msg = st.text_input("Message")
     if st.button("Send") and msg:
         cursor.execute(
             "INSERT INTO messages(match_id, sender, message, created_ts) VALUES (?,?,?,?)",
@@ -274,16 +247,16 @@ def matchmaking_page():
         st.success("File uploaded")
 
     if st.button("End Session"):
-        cursor.execute(
-            "UPDATE sessions SET ended_at=? WHERE match_id=?",
-            (now(), st.session_state.current_match_id)
-        )
+        cursor.execute("""
+            UPDATE sessions SET ended_at=? WHERE match_id=?
+        """, (now(), st.session_state.current_match_id))
         conn.commit()
 
         st.session_state.session_ended = True
         st.session_state.summary = generate_summary(st.session_state.chat_log)
         st.rerun()
 
+    # ================= POST SESSION =================
     if st.session_state.session_ended:
         st.subheader("📝 Session Summary")
         st.write(st.session_state.summary)
@@ -307,6 +280,7 @@ def matchmaking_page():
             if st.button("Take Quiz"):
                 st.session_state.quiz = generate_quiz(st.session_state.chat_log)
                 st.session_state.show_quiz = True
+
         with col2:
             if st.button("Back to Matchmaking"):
                 reset_matchmaking()
