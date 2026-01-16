@@ -8,7 +8,7 @@ from ai_helper import ask_ai
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-POLL_INTERVAL = 3  # seconds
+POLL_INTERVAL = 3
 
 # =========================================================
 # HELPERS
@@ -150,8 +150,56 @@ def matchmaking_page():
     require_login()
     init_state()
 
-    st.markdown("## Study Matchmaking")
+    # ================= UI STYLE (ONLY CHANGE) =================
+    st.markdown("""
+    <style>
+    .stButton > button {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg,#6366f1,#4f46e5);
+        color: white;
+        border: none;
+        border-radius: 999px;
+        padding: 0.55rem 1.1rem;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: transform .2s ease, box-shadow .2s ease;
+        box-shadow: 0 6px 18px rgba(79,70,229,.35);
+    }
 
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 28px rgba(79,70,229,.45);
+        background: linear-gradient(135deg,#4f46e5,#4338ca);
+    }
+
+    .stButton > button::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 8px;
+        height: 8px;
+        background: rgba(255,255,255,.5);
+        border-radius: 50%;
+        transform: translate(-50%,-50%) scale(0);
+        opacity: 0;
+    }
+
+    .stButton > button:active::after {
+        animation: ripple .6s ease-out;
+    }
+
+    @keyframes ripple {
+        0% { transform: translate(-50%,-50%) scale(0); opacity:.6; }
+        100% { transform: translate(-50%,-50%) scale(18); opacity:0; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # =========================================================
+    st.markdown("## Study Matchmaking")
     ai_chat_ui()
     st.divider()
 
@@ -176,29 +224,26 @@ def matchmaking_page():
                 st.session_state.proposed_score = score
                 st.rerun()
 
-        st.info("Click “Check compatible users” to find a match.")
+        st.info("Click the button to find a compatible study partner.")
         return
 
-    # ================= CONFIRMATION PAGE =================
+    # ================= CONFIRMATION =================
     if st.session_state.proposed_match and not st.session_state.confirmed:
         u = st.session_state.proposed_match
 
-        st.subheader("Confirm your study partner")
+        st.subheader("Confirm study partner")
 
-        with st.container():
-            st.markdown(f"""
-            <div style="border:1px solid #e5e7eb;
-                        border-radius:12px;
-                        padding:16px;
-                        background:#ffffff">
-                <h4>{u['name']}</h4>
-                <p><b>Grade:</b> {u['grade']}</p>
-                <p><b>Time slot:</b> {u['time']}</p>
-                <p><b>Strong subjects:</b> {", ".join(u['strong'])}</p>
-                <p><b>Weak subjects:</b> {", ".join(u['weak'])}</p>
-                <p><b>Compatibility score:</b> {st.session_state.proposed_score}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="border:1px solid #e5e7eb;border-radius:14px;
+                    padding:16px;background:#ffffff">
+            <b>{u['name']}</b><br>
+            Grade: {u['grade']}<br>
+            Time: {u['time']}<br>
+            Strong subjects: {", ".join(u['strong'])}<br>
+            Weak subjects: {", ".join(u['weak'])}<br>
+            Compatibility score: {st.session_state.proposed_score}
+        </div>
+        """, unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
         with col1:
@@ -216,7 +261,6 @@ def matchmaking_page():
                 """, (match_id, st.session_state.user_id, u["user_id"], now()))
 
                 conn.commit()
-
                 st.session_state.current_match_id = match_id
                 st.session_state.confirmed = True
                 st.session_state.proposed_match = None
@@ -224,7 +268,7 @@ def matchmaking_page():
                 st.rerun()
 
         with col2:
-            if st.button("Find another match"):
+            if st.button("Find another"):
                 st.session_state.proposed_match = None
                 st.session_state.proposed_score = None
                 st.rerun()
@@ -254,7 +298,6 @@ def matchmaking_page():
         path = f"{UPLOAD_DIR}/{st.session_state.current_match_id}_{f.name}"
         with open(path, "wb") as out:
             out.write(f.read())
-
         conn.execute("""
             INSERT INTO session_files(match_id, uploader, filename, filepath)
             VALUES (?,?,?,?)
