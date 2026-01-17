@@ -58,7 +58,7 @@ def login():
 # AUTH PAGE
 # =========================
 def auth_page():
-    st.title("Welcome to Peer Learning Platform")
+    st.title("Sahay | Welcome to Peer Learning Platform")
 
     tab1, tab2 = st.tabs(["Login", "Sign Up"])
 
